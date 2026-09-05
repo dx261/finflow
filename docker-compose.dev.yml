@@ -1,0 +1,44 @@
+# FinFlow — local development infrastructure.
+#
+# Runs only PostgreSQL and Redis in Docker so the FastAPI backend and the
+# Vite dev server can run on the host with hot reload. Host ports are
+# exposed for convenience; this file is never used in production.
+name: finflow-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finflow}
+      POSTGRES_DB: ${POSTGRES_DB:-finflow}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-finflow} -d ${POSTGRES_DB:-finflow}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:
