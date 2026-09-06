@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     api_v1_prefix: str = "/api/v1"
 
+    # --- Database ------------------------------------------------------------
+    # Async SQLAlchemy connection string. Production uses PostgreSQL via
+    # asyncpg; tests override this with SQLite (aiosqlite) so the suite runs
+    # without a database server.
+    database_url: str = "postgresql+asyncpg://finflow:finflow@localhost:5432/finflow"
+
     # --- Security ----------------------------------------------------------
     # CORS origins allowed to call the API (frontend dev server).
     cors_origins: list[str] = ["http://localhost:5173"]

@@ -11,8 +11,8 @@ def test_health_returns_ok() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    # Dependency fields exist and are honest about their current state.
-    assert body["database"] == "not_configured"
+    # The test database (SQLite) is reachable, so the probe reports "ok".
+    assert body["database"] == "ok"
     assert body["redis"] == "not_configured"
 
 
