@@ -90,6 +90,9 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   aggregation)
 - **TASK-004 Redis Infrastructure** — DONE (async redis-py client wired
   into the health probe; Celery broker/cache/locks later)
+- **TASK-008 Authentication** — DONE (users table migration on PostgreSQL,
+  bcrypt password hashing, JWT access/refresh tokens, OWNER/VIEWER roles,
+  register/login/refresh/me endpoints)
 
 ## Tooling
 

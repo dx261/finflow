@@ -13,10 +13,12 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine
 from app.core.redis import ping_redis
+from app.modules.auth.router import router as auth_router
 
 logger = logging.getLogger("finflow")
 
 api_router = APIRouter(prefix=settings.api_v1_prefix)
+api_router.include_router(auth_router)
 
 
 async def check_database() -> str:

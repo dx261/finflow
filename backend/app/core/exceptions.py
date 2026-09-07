@@ -82,6 +82,15 @@ class DuplicateImportError(ConflictError):
     code = "DUPLICATE_IMPORT"
 
 
+class AuthenticationError(FinFlowError):
+    status_code = 401
+    code = "UNAUTHORIZED"
+
+
+class InvalidCredentialsError(AuthenticationError):
+    code = "INVALID_CREDENTIALS"
+
+
 def _trace_id_for(request: Request) -> str:
     """Resolve the current request trace ID.
 

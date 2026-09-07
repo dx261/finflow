@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # CORS origins allowed to call the API (frontend dev server).
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Development-only default. Override with a strong random value in
+    # production (>= 32 bytes for HS256).
+    secret_key: str = "development-only-secret-key-0123456789abcdef-XY"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
+
     # --- Storage -------------------------------------------------------------
     # Root directory for uploaded statement files, exports and temp data.
     data_dir: str = "./data"
