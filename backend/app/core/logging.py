@@ -10,6 +10,15 @@ import sys
 from datetime import UTC, datetime
 
 from app.core.config import settings
+from app.core.middleware import trace_id_var
+
+
+class TraceIDFilter(logging.Filter):
+    """Attach the current request trace ID to every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.trace_id = trace_id_var.get() or "-"
+        return True
 
 
 class JsonFormatter(logging.Formatter):
@@ -20,6 +29,7 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
+            "trace_id": record.__dict__.get("trace_id", "-"),
             "message": record.getMessage(),
         }
         if record.exc_info:
@@ -28,9 +38,10 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
-    """Install the JSON formatter on the root logger and stdout."""
+    """Install the JSON formatter and trace filter on the root logger."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
+    handler.addFilter(TraceIDFilter())
 
     root = logging.getLogger()
     root.handlers = [handler]

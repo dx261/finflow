@@ -1,38 +1,21 @@
 """FinFlow FastAPI application entrypoint."""
 
-import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
+from app.api.router import api_router
 from app.core.config import settings
-from app.core.database import engine
+from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.middleware import TraceIDMiddleware
 
 logger = logging.getLogger("finflow")
 
 configure_logging()
-
-
-async def check_database() -> str:
-    """Probe the database with a round-trip query.
-
-    Returns ``"ok"`` when reachable, otherwise ``"unavailable"``. The probe
-    is bounded by a short timeout so a downed database never hangs or
-    crashes the health endpoint.
-    """
-    try:
-        async with asyncio.timeout(3):
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-        return "ok"
-    except Exception:
-        logger.warning("database_health_check_failed", exc_info=True)
-        return "unavailable"
 
 
 @asynccontextmanager
@@ -57,6 +40,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Middleware order matters: the last-added middleware is the outermost.
+    # Trace-ID first, then CORS so CORS wraps every response.
+    app.add_middleware(TraceIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -65,19 +51,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get(f"{settings.api_v1_prefix}/health", tags=["system"])
-    async def health() -> dict[str, str]:
-        """Liveness probe.
-
-        Reports service status plus the state of each infrastructure
-        dependency. Dependencies degrade gracefully — an unavailable
-        database never prevents the API from booting or responding.
-        """
-        return {
-            "status": "ok",
-            "database": await check_database(),
-            "redis": "not_configured",
-        }
+    register_exception_handlers(app)
+    app.include_router(api_router)
 
     return app
 

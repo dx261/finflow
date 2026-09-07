@@ -85,6 +85,9 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
 - **TASK-001 Repository Bootstrap** — DONE
 - **TASK-003 Database Infrastructure** — DONE (PostgreSQL via asyncpg in
   production; tests run on SQLite so no server is required locally)
+- **TASK-006 FastAPI Core** — DONE (unified error envelope
+  `code`/`message`/`trace_id`, X-Request-ID propagation, versioned router
+  aggregation)
 
 ## Tooling
 
