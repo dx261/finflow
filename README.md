@@ -88,6 +88,8 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
 - **TASK-006 FastAPI Core** — DONE (unified error envelope
   `code`/`message`/`trace_id`, X-Request-ID propagation, versioned router
   aggregation)
+- **TASK-004 Redis Infrastructure** — DONE (async redis-py client wired
+  into the health probe; Celery broker/cache/locks later)
 
 ## Tooling
 

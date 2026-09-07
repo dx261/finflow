@@ -13,7 +13,8 @@ def test_health_returns_ok() -> None:
     assert body["status"] == "ok"
     # The test database (SQLite) is reachable, so the probe reports "ok".
     assert body["database"] == "ok"
-    assert body["redis"] == "not_configured"
+    # Redis points at a closed port in tests, so it degrades gracefully.
+    assert body["redis"] == "unavailable"
 
 
 def test_health_exposes_api_prefix() -> None:

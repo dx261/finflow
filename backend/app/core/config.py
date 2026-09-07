@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # without a database server.
     database_url: str = "postgresql+asyncpg://finflow:finflow@localhost:5432/finflow"
 
+    # --- Redis ----------------------------------------------------------------
+    # Used as Celery broker/results, cache, distributed locks and
+    # idempotency store. Tests override this to an unreachable port so the
+    # suite never depends on a running Redis server.
+    redis_url: str = "redis://localhost:6379/0"
+
     # --- Security ----------------------------------------------------------
     # CORS origins allowed to call the API (frontend dev server).
     cors_origins: list[str] = ["http://localhost:5173"]

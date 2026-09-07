@@ -10,5 +10,7 @@ import tempfile
 
 _test_dir = tempfile.mkdtemp(prefix="finflow_test_")
 _db_url = f"sqlite+aiosqlite:///{_test_dir.replace(os.sep, '/')}/test.db"
-# Plain DATABASE_URL (no prefix) matches the pydantic-settings field name.
+# Plain env names (no prefix) match the pydantic-settings field names.
 os.environ["DATABASE_URL"] = _db_url
+# Point Redis at a closed port so the suite never depends on a server.
+os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"

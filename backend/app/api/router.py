@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine
+from app.core.redis import ping_redis
 
 logger = logging.getLogger("finflow")
 
@@ -46,5 +47,5 @@ async def health() -> dict[str, str]:
     return {
         "status": "ok",
         "database": await check_database(),
-        "redis": "not_configured",
+        "redis": await ping_redis(),
     }
