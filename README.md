@@ -100,6 +100,9 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   `planning_available`, OWNER-only writes)
 - **TASK-011 Account Balance Snapshot** — DONE (point-in-time balance
   records for trends, sources STATEMENT/MANUAL/IMPORT)
+- **TASK-012 Audit Log** — DONE (immutable audit trail with before/after
+  JSON state and trace IDs; wired into account create/update; OWNER-only
+  query endpoint)
 
 ## Tooling
 

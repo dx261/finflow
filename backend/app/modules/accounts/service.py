@@ -16,6 +16,7 @@ from app.modules.accounts.schemas import (
     BalanceSnapshotCreate,
     BalanceSnapshotRead,
 )
+from app.modules.audit.service import AuditService
 from app.modules.auth.models import User, UserRole
 
 
@@ -77,6 +78,13 @@ class AccountService:
 
     async def create_account(self, user_id: uuid.UUID, payload: AccountCreate) -> AccountRead:
         account = await self.repository.create(user_id, payload)
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="ACCOUNT_CREATED",
+            resource_type="account",
+            resource_id=str(account.id),
+            after_data=self.to_read(account).model_dump(mode="json"),
+        )
         await self.session.commit()
         return self.to_read(account)
 
@@ -84,7 +92,16 @@ class AccountService:
         self, account_id: uuid.UUID, payload: AccountUpdate, current_user: User
     ) -> AccountRead:
         account = await self._owned_account(account_id, current_user)
+        before_data = self.to_read(account).model_dump(mode="json")
         updated = await self.repository.update(account, payload)
+        await AuditService(self.session).record(
+            user_id=current_user.id,
+            action="ACCOUNT_UPDATED",
+            resource_type="account",
+            resource_id=str(account_id),
+            before_data=before_data,
+            after_data=self.to_read(updated).model_dump(mode="json"),
+        )
         await self.session.commit()
         return self.to_read(updated)
 
