@@ -7,6 +7,7 @@ from alembic import context
 from app.core.config import settings
 from app.core.database import Base
 from app.modules.auth.models import User  # noqa: F401  (register model on metadata)
+from app.modules.banks.models import Bank  # noqa: F401
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config

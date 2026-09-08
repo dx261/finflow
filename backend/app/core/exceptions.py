@@ -91,6 +91,11 @@ class InvalidCredentialsError(AuthenticationError):
     code = "INVALID_CREDENTIALS"
 
 
+class PermissionDeniedError(FinFlowError):
+    status_code = 403
+    code = "FORBIDDEN"
+
+
 def _trace_id_for(request: Request) -> str:
     """Resolve the current request trace ID.
 

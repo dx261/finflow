@@ -9,9 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import TraceIDMiddleware
+from app.modules.banks.seed import seed_default_banks
 
 logger = logging.getLogger("finflow")
 
@@ -25,6 +27,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "finflow_started",
         extra={"app": settings.app_name, "env": settings.app_env},
     )
+    # Seed the default bank catalog. Best-effort: a missing database must
+    # never prevent the API from booting.
+    try:
+        async with AsyncSessionLocal() as session:
+            created = await seed_default_banks(session)
+            if created:
+                logger.info("banks_seeded", extra={"created": created})
+    except Exception:
+        logger.warning("bank_seed_failed", exc_info=True)
     yield
     logger.info("finflow_shutdown")
 

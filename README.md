@@ -93,6 +93,8 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
 - **TASK-008 Authentication** — DONE (users table migration on PostgreSQL,
   bcrypt password hashing, JWT access/refresh tokens, OWNER/VIEWER roles,
   register/login/refresh/me endpoints)
+- **TASK-009 Bank Model** — DONE (banks catalog with seeded defaults,
+  OWNER-only writes, auth-protected reads)
 
 ## Tooling
 

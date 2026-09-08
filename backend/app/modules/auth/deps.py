@@ -8,9 +8,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.exceptions import AuthenticationError, InvalidCredentialsError
+from app.core.exceptions import (
+    AuthenticationError,
+    InvalidCredentialsError,
+    PermissionDeniedError,
+)
 from app.core.security import decode_token
-from app.modules.auth.models import User, UserStatus
+from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.auth.repository import UserRepository
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -39,3 +43,16 @@ async def get_current_user(
     if user.status != UserStatus.ACTIVE:
         raise AuthenticationError("User is disabled.", code="USER_DISABLED")
     return user
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_owner(current_user: CurrentUser) -> User:
+    """Dependency that permits only OWNER users."""
+    if current_user.role != UserRole.OWNER:
+        raise PermissionDeniedError("Owner role required.")
+    return current_user
+
+
+OwnerUser = Annotated[User, Depends(require_owner)]
