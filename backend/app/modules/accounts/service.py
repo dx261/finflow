@@ -1,6 +1,7 @@
 """Account business logic and planning-balance computation."""
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, PermissionDeniedError
 from app.modules.accounts.models import Account
 from app.modules.accounts.repository import AccountRepository
-from app.modules.accounts.schemas import AccountCreate, AccountRead, AccountUpdate
+from app.modules.accounts.schemas import (
+    AccountCreate,
+    AccountRead,
+    AccountUpdate,
+    BalanceSnapshotCreate,
+    BalanceSnapshotRead,
+)
 from app.modules.auth.models import User, UserRole
 
 
@@ -85,6 +92,29 @@ class AccountService:
         account = await self._owned_account(account_id, current_user)
         await self.repository.delete(account)
         await self.session.commit()
+
+    # --- balance snapshots -------------------------------------------------
+
+    async def list_snapshots(
+        self, account_id: uuid.UUID, current_user: User
+    ) -> list[BalanceSnapshotRead]:
+        account = await self._owned_account(account_id, current_user)
+        snapshots = await self.repository.list_snapshots(account.id)
+        return [BalanceSnapshotRead.model_validate(s) for s in snapshots]
+
+    async def create_snapshot(
+        self, account_id: uuid.UUID, payload: BalanceSnapshotCreate, current_user: User
+    ) -> BalanceSnapshotRead:
+        account = await self._owned_account(account_id, current_user)
+        snapshot = await self.repository.create_snapshot(
+            account_id=account.id,
+            balance=account.actual_balance,
+            available_balance=self.planning_available(account),
+            snapshot_date=payload.snapshot_date or date.today(),
+            source=payload.source,
+        )
+        await self.session.commit()
+        return BalanceSnapshotRead.model_validate(snapshot)
 
     async def _owned_account(self, account_id: uuid.UUID, current_user: User) -> Account:
         account = await self.repository.get_by_id(account_id)

@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.accounts.schemas import AccountCreate, AccountRead, AccountUpdate
+from app.modules.accounts.schemas import (
+    AccountCreate,
+    AccountRead,
+    AccountUpdate,
+    BalanceSnapshotCreate,
+    BalanceSnapshotRead,
+)
 from app.modules.accounts.service import AccountService
 from app.modules.auth.deps import CurrentUser, OwnerUser
 
@@ -45,3 +51,20 @@ async def update_account(
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: uuid.UUID, owner: OwnerUser, session: DbSession) -> None:
     await AccountService(session).delete_account(account_id, owner)
+
+
+@router.get("/{account_id}/balances", response_model=list[BalanceSnapshotRead])
+async def list_balances(
+    account_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+) -> list[BalanceSnapshotRead]:
+    return await AccountService(session).list_snapshots(account_id, current_user)
+
+
+@router.post("/{account_id}/balances", response_model=BalanceSnapshotRead, status_code=201)
+async def create_balance(
+    account_id: uuid.UUID,
+    payload: BalanceSnapshotCreate,
+    owner: OwnerUser,
+    session: DbSession,
+) -> BalanceSnapshotRead:
+    return await AccountService(session).create_snapshot(account_id, payload, owner)

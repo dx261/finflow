@@ -8,11 +8,11 @@ Three distinct balance concepts (see CODING_PLAN.md §13):
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,4 +60,26 @@ class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     include_in_allocation: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     status: Mapped[AccountStatus] = mapped_column(
         SAEnum(AccountStatus), default=AccountStatus.ACTIVE, nullable=False
+    )
+
+
+class BalanceSource(StrEnum):
+    STATEMENT = "STATEMENT"
+    MANUAL = "MANUAL"
+    IMPORT = "IMPORT"
+
+
+class AccountBalanceSnapshot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A point-in-time record of an account's balances (for trends)."""
+
+    __tablename__ = "account_balance_snapshots"
+
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    available_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    source: Mapped[BalanceSource] = mapped_column(
+        SAEnum(BalanceSource), default=BalanceSource.MANUAL, nullable=False
     )

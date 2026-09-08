@@ -1,11 +1,13 @@
 """Account data access."""
 
 import uuid
+from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.accounts.models import Account
+from app.modules.accounts.models import Account, AccountBalanceSnapshot, BalanceSource
 from app.modules.accounts.schemas import AccountCreate, AccountUpdate
 
 
@@ -49,3 +51,30 @@ class AccountRepository:
     async def delete(self, account: Account) -> None:
         await self.session.delete(account)
         await self.session.flush()
+
+    async def list_snapshots(self, account_id: uuid.UUID) -> list[AccountBalanceSnapshot]:
+        result = await self.session.scalars(
+            select(AccountBalanceSnapshot)
+            .where(AccountBalanceSnapshot.account_id == account_id)
+            .order_by(AccountBalanceSnapshot.snapshot_date.desc())
+        )
+        return list(result)
+
+    async def create_snapshot(
+        self,
+        account_id: uuid.UUID,
+        balance: Decimal,
+        available_balance: Decimal,
+        snapshot_date: date,
+        source: BalanceSource,
+    ) -> AccountBalanceSnapshot:
+        snapshot = AccountBalanceSnapshot(
+            account_id=account_id,
+            balance=balance,
+            available_balance=available_balance,
+            snapshot_date=snapshot_date,
+            source=source,
+        )
+        self.session.add(snapshot)
+        await self.session.flush()
+        return snapshot

@@ -1,12 +1,12 @@
 """Account schemas."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.modules.accounts.models import AccountStatus, AccountType
+from app.modules.accounts.models import AccountStatus, AccountType, BalanceSource
 
 
 class AccountCreate(BaseModel):
@@ -51,3 +51,20 @@ class AccountRead(BaseModel):
     planning_available: Decimal
     created_at: datetime
     updated_at: datetime
+
+
+class BalanceSnapshotCreate(BaseModel):
+    snapshot_date: date | None = None
+    source: BalanceSource = BalanceSource.MANUAL
+
+
+class BalanceSnapshotRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    account_id: uuid.UUID
+    balance: Decimal
+    available_balance: Decimal
+    snapshot_date: date
+    source: BalanceSource
+    created_at: datetime

@@ -98,6 +98,8 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
 - **TASK-010 Account Model** — DONE (accounts table on PostgreSQL with
   NUMERIC(18,2) money, the three balance concepts with live-computed
   `planning_available`, OWNER-only writes)
+- **TASK-011 Account Balance Snapshot** — DONE (point-in-time balance
+  records for trends, sources STATEMENT/MANUAL/IMPORT)
 
 ## Tooling
 
