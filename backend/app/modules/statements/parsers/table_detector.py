@@ -33,6 +33,8 @@ HEADER_FIELDS: dict[str, list[str]] = {
     "description": ["摘要", "交易摘要", "描述", "备注", "description", "附言"],
     "counterparty": ["对方户名", "对方名称", "交易对手", "商户名称", "counterparty", "对方账号"],
     "amount": ["金额", "交易金额", "发生额", "amount"],
+    "debit_amount": ["借方金额", "支出金额", "支出", "debit"],
+    "credit_amount": ["贷方金额", "收入金额", "收入", "credit"],
     "balance": ["余额", "账户余额", "balance"],
     "direction": ["借贷标志", "借贷", "方向", "收/支", "借贷方向"],
     "reference": ["交易流水号", "流水号", "参考号", "reference"],

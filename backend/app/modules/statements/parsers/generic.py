@@ -16,6 +16,8 @@ from typing import Any
 
 from python_calamine import CalamineWorkbook
 
+from app.modules.statements.parsers.base import BaseStatementParser
+
 _ENCODINGS = ("utf-8-sig", "gb18030")
 
 
@@ -61,16 +63,6 @@ class StatementFile:
             rows.append([self._clean(cell) for cell in row])
         return rows
 
-    @staticmethod
-    def _clean(cell: Any) -> Any:
-        """Normalize empty cells to ``None`` (uniform grid convention)."""
-        if cell is None:
-            return None
-        if isinstance(cell, str):
-            stripped = cell.strip()
-            return stripped if stripped else None
-        return cell
-
     def _read_csv_text(self) -> str:
         last_error: Exception | None = None
         for encoding in _ENCODINGS:
@@ -81,3 +73,22 @@ class StatementFile:
         if last_error is not None:
             raise StatementFileError(f"Could not decode {self.path.name}") from last_error
         return self.path.read_text(encoding="utf-8", errors="replace")
+
+    @staticmethod
+    def _clean(cell: Any) -> Any:
+        """Normalize empty cells to ``None`` (uniform grid convention)."""
+        if cell is None:
+            return None
+        if isinstance(cell, str):
+            stripped = cell.strip()
+            return stripped if stripped else None
+        return cell
+
+
+class GenericStatementParser(BaseStatementParser):
+    """Fallback parser: relies purely on the generic header detection.
+
+    Used when no bank-specific parser exists. Expects a table with a
+    recognizable transaction header and, ideally, a direction or
+    debit/credit column.
+    """

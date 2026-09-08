@@ -103,6 +103,10 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
 - **TASK-012 Audit Log** — DONE (immutable audit trail with before/after
   JSON state and trace IDs; wired into account create/update; OWNER-only
   query endpoint)
+- **TASK-019/015/016/017/018 Statement Parsing** — DONE (normalize_text,
+  generic file loader, floating anchor detection, dynamic table
+  detection, ICBC/CMB/generic parsers with Decimal money and direction
+  resolution)
 
 ## Tooling
 
