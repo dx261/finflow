@@ -9,17 +9,30 @@ override ``DATABASE_URL`` with SQLite (aiosqlite).
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Uuid, func
+from sqlalchemy import DateTime, Uuid
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+_poolclass = NullPool if settings.database_poolclass == "null" else None
+
+engine = create_async_engine(settings.database_url, pool_pre_ping=True, poolclass=_poolclass)
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC now, computed client-side.
+
+    Python-side timestamp defaults keep the value known to the ORM
+    immediately after flush, so reading it never triggers a lazy reload —
+    which is illegal in an async context and would raise MissingGreenlet.
+    """
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -36,13 +49,10 @@ class TimestampMixin:
     """Adds ``created_at`` / ``updated_at`` timestamp columns."""
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=_utcnow, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
 

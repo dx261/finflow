@@ -95,6 +95,9 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   register/login/refresh/me endpoints)
 - **TASK-009 Bank Model** — DONE (banks catalog with seeded defaults,
   OWNER-only writes, auth-protected reads)
+- **TASK-010 Account Model** — DONE (accounts table on PostgreSQL with
+  NUMERIC(18,2) money, the three balance concepts with live-computed
+  `planning_available`, OWNER-only writes)
 
 ## Tooling
 

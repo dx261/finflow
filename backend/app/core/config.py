@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # asyncpg; tests override this with SQLite (aiosqlite) so the suite runs
     # without a database server.
     database_url: str = "postgresql+asyncpg://finflow:finflow@localhost:5432/finflow"
+    # Connection pool strategy: "queue" (default) or "null". Tests use "null"
+    # so connections are never reused across event loops.
+    database_poolclass: str = "queue"
 
     # --- Redis ----------------------------------------------------------------
     # Used as Celery broker/results, cache, distributed locks and

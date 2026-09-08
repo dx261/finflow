@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with AsyncSessionLocal() as session:
             created = await seed_default_banks(session)
             if created:
-                logger.info("banks_seeded", extra={"created": created})
+                logger.info("banks_seeded", extra={"banks_created": created})
     except Exception:
         logger.warning("bank_seed_failed", exc_info=True)
     yield
