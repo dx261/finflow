@@ -1,0 +1,1 @@
+"""Internal transfer detection module."""

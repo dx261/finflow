@@ -107,6 +107,8 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   generic file loader, floating anchor detection, dynamic table
   detection, ICBC/CMB/generic parsers with Decimal money and direction
   resolution)
+- **TASK-020/021/022** — DONE (transaction fingerprint dedup, rule-based
+  category engine, internal transfer detection)
 
 ## Tooling
 
