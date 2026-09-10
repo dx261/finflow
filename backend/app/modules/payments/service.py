@@ -13,6 +13,7 @@ from app.modules.accounts.models import Account
 from app.modules.payments.models import PaymentPlan, PaymentStatus
 from app.modules.payments.repository import PaymentRepository
 from app.modules.payments.schemas import PaymentCreate, PaymentUpdate
+from app.modules.payments.state_machine import assert_transition
 
 _EDITABLE_STATUSES = {PaymentStatus.DRAFT, PaymentStatus.PLANNED}
 
@@ -64,3 +65,13 @@ class PaymentService:
             raise ConflictError("Only DRAFT or PLANNED payments can be deleted.")
         await self.repository.delete(payment)
         await self.session.commit()
+
+    async def transition(
+        self, user_id: uuid.UUID, payment_id: uuid.UUID, target: PaymentStatus
+    ) -> PaymentPlan:
+        """Advance a payment to ``target``, validated by the state machine."""
+        payment = await self.get_payment(user_id, payment_id)
+        assert_transition(payment.status, target)
+        payment.status = target
+        await self.session.commit()
+        return payment

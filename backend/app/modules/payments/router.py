@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.auth.deps import CurrentUser, OwnerUser
 from app.modules.payments.models import PaymentStatus
-from app.modules.payments.schemas import PaymentCreate, PaymentRead, PaymentUpdate
+from app.modules.payments.schemas import (
+    PaymentCreate,
+    PaymentRead,
+    PaymentTransition,
+    PaymentUpdate,
+)
 from app.modules.payments.service import PaymentService
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -60,3 +65,15 @@ async def update_payment(
 @router.delete("/{payment_id}", status_code=204)
 async def delete_payment(payment_id: uuid.UUID, owner: OwnerUser, session: DbSession) -> None:
     await PaymentService(session).delete_payment(owner.id, payment_id)
+
+
+@router.post("/{payment_id}/transition", response_model=PaymentRead)
+async def transition_payment(
+    payment_id: uuid.UUID,
+    payload: PaymentTransition,
+    owner: OwnerUser,
+    session: DbSession,
+) -> PaymentRead:
+    return PaymentRead.model_validate(
+        await PaymentService(session).transition(owner.id, payment_id, payload.target_status)
+    )

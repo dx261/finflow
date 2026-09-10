@@ -31,6 +31,10 @@ class PaymentUpdate(BaseModel):
     preferred_account_id: uuid.UUID | None = None
 
 
+class PaymentTransition(BaseModel):
+    target_status: PaymentStatus
+
+
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
