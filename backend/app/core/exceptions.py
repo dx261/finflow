@@ -96,6 +96,11 @@ class PermissionDeniedError(FinFlowError):
     code = "FORBIDDEN"
 
 
+class BadRequestError(FinFlowError):
+    status_code = 400
+    code = "BAD_REQUEST"
+
+
 def _trace_id_for(request: Request) -> str:
     """Resolve the current request trace ID.
 

@@ -10,6 +10,12 @@ from app.modules.accounts.models import Account, AccountBalanceSnapshot  # noqa:
 from app.modules.audit.models import AuditLog  # noqa: F401
 from app.modules.auth.models import User  # noqa: F401  (register model on metadata)
 from app.modules.banks.models import Bank  # noqa: F401
+from app.modules.categories.models import Category  # noqa: F401
+from app.modules.statements.models import (  # noqa: F401
+    ImportError,
+    StatementImport,
+    Transaction,
+)
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config

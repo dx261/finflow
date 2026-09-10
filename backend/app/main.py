@@ -14,6 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import TraceIDMiddleware
 from app.modules.banks.seed import seed_default_banks
+from app.modules.categories.seed import seed_default_categories
 
 logger = logging.getLogger("finflow")
 
@@ -27,15 +28,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "finflow_started",
         extra={"app": settings.app_name, "env": settings.app_env},
     )
-    # Seed the default bank catalog. Best-effort: a missing database must
-    # never prevent the API from booting.
+    # Seed default catalogs. Best-effort: a missing database must never
+    # prevent the API from booting.
     try:
         async with AsyncSessionLocal() as session:
-            created = await seed_default_banks(session)
-            if created:
-                logger.info("banks_seeded", extra={"banks_created": created})
+            banks = await seed_default_banks(session)
+            categories = await seed_default_categories(session)
+            if banks or categories:
+                logger.info(
+                    "catalogs_seeded",
+                    extra={"banks_created": banks, "categories_created": categories},
+                )
     except Exception:
-        logger.warning("bank_seed_failed", exc_info=True)
+        logger.warning("catalog_seed_failed", exc_info=True)
     yield
     logger.info("finflow_shutdown")
 

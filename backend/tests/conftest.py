@@ -21,12 +21,15 @@ os.environ["DATABASE_URL"] = _db_url
 os.environ["DATABASE_POOLCLASS"] = "null"
 # Point Redis at a closed port so the suite never depends on a server.
 os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"
+# Uploaded statement files land in a temp directory during tests.
+os.environ["DATA_DIR"] = os.path.join(_test_dir, "data")
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 from app.core.database import AsyncSessionLocal, Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.banks.seed import seed_default_banks  # noqa: E402
+from app.modules.categories.seed import seed_default_categories  # noqa: E402
 
 
 @pytest.fixture
@@ -51,6 +54,14 @@ async def seeded_banks(db_reset) -> None:
     """Reset the schema and insert the default bank catalog."""
     async with AsyncSessionLocal() as session:
         await seed_default_banks(session)
+    yield
+
+
+@pytest.fixture
+async def seeded_categories(db_reset) -> None:
+    """Reset the schema and insert the default categories."""
+    async with AsyncSessionLocal() as session:
+        await seed_default_categories(session)
     yield
 
 

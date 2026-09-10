@@ -109,6 +109,10 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   resolution)
 - **TASK-020/021/022** — DONE (transaction fingerprint dedup, rule-based
   category engine, internal transfer detection)
+- **TASK-013 Statement Upload** — DONE (StatementImport/Transaction/
+  ImportError/Category tables, UUID-safe file storage, SHA-256 duplicate
+  protection, upload API returning 202, sync import processor wiring
+  parse→dedup→classify→insert→balance update)
 
 ## Tooling
 
