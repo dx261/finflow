@@ -23,6 +23,8 @@ os.environ["DATABASE_POOLCLASS"] = "null"
 os.environ["REDIS_URL"] = "redis://127.0.0.1:1/0"
 # Uploaded statement files land in a temp directory during tests.
 os.environ["DATA_DIR"] = os.path.join(_test_dir, "data")
+# Tests use the synchronous import path; never dispatch to Celery.
+os.environ["STATEMENT_IMPORT_ASYNC"] = "false"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402

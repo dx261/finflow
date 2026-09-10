@@ -42,7 +42,14 @@ class Settings(BaseSettings):
     # Used as Celery broker/results, cache, distributed locks and
     # idempotency store. Tests override this to an unreachable port so the
     # suite never depends on a running Redis server.
-    redis_url: str = "redis://localhost:6379/0"
+    # 127.0.0.1 (not "localhost") avoids IPv6 ::1 resolution issues with
+    # the kombu broker on Windows.
+    redis_url: str = "redis://127.0.0.1:6379/0"
+
+    # --- Async processing ------------------------------------------------------
+    # When true, statement uploads are dispatched to the Celery worker.
+    # Disable in tests / single-process dev where the sync path is used.
+    statement_import_async: bool = True
 
     # --- Security ----------------------------------------------------------
     # CORS origins allowed to call the API (frontend dev server).

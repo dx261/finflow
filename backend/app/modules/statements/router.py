@@ -1,11 +1,13 @@
 """Statement import endpoints."""
 
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.modules.auth.deps import CurrentUser
 from app.modules.statements.schemas import (
@@ -16,9 +18,23 @@ from app.modules.statements.schemas import (
 )
 from app.modules.statements.service import StatementService
 
+logger = logging.getLogger("finflow")
+
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 router = APIRouter(prefix="/statements", tags=["statements"])
+
+
+def _dispatch_import(import_id: str) -> None:
+    """Enqueue the import task, degrading gracefully when enqueue fails."""
+    if not settings.statement_import_async:
+        return
+    try:
+        from app.workers.tasks import process_import_task
+
+        process_import_task.delay(import_id)
+    except Exception:
+        logger.warning("import_enqueue_failed", extra={"import_id": import_id}, exc_info=True)
 
 
 @router.post("/upload", response_model=UploadResult, status_code=202)
@@ -32,13 +48,16 @@ async def upload_statement(
     """Stage a statement file. Parsing is processed asynchronously."""
     content = await file.read()
     filename = file.filename or "statement"
-    return await StatementService(session).upload(
+    result = await StatementService(session).upload(
         user_id=current_user.id,
         account_id=account_id,
         filename=filename,
         content=content,
         force_import=force_import,
     )
+    if not result.is_duplicate:
+        _dispatch_import(str(result.import_id))
+    return result
 
 
 @router.get("", response_model=list[StatementImportRead])

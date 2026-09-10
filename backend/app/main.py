@@ -13,6 +13,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import TraceIDMiddleware
+from app.models import Base  # noqa: F401  (register all models on metadata)
 from app.modules.banks.seed import seed_default_banks
 from app.modules.categories.seed import seed_default_categories
 

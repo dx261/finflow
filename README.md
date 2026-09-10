@@ -113,6 +113,10 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   ImportError/Category tables, UUID-safe file storage, SHA-256 duplicate
   protection, upload API returning 202, sync import processor wiring
   parse→dedup→classify→insert→balance update)
+- **TASK-014 Celery Import Pipeline** — DONE (Redis broker/backend,
+  `statements.process_import` task, upload dispatches async; verified
+  end-to-end with a real worker + Redis + PostgreSQL)
+- **Phase 3 Transactions** — COMPLETE
 
 ## Tooling
 

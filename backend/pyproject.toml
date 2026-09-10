@@ -19,6 +19,7 @@ dependencies = [
     "pyjwt>=2.13.0",
     "email-validator>=2.2",
     "python-calamine>=0.8.2",
+    "celery>=5.4",
 ]
 
 [dependency-groups]
@@ -63,3 +64,7 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 no_implicit_optional = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "celery.*"
+ignore_missing_imports = true
