@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     # Disable in tests / single-process dev where the sync path is used.
     statement_import_async: bool = True
 
+    # --- Reconciliation -----------------------------------------------------
+    # Weights and thresholds for payment-to-transaction matching (§43).
+    recon_amount_weight: float = 0.45
+    recon_account_weight: float = 0.20
+    recon_date_weight: float = 0.15
+    recon_counterparty_weight: float = 0.15
+    recon_reference_weight: float = 0.05
+    auto_match_threshold: float = 0.80
+    review_threshold: float = 0.60
+
     # --- Security ----------------------------------------------------------
     # CORS origins allowed to call the API (frontend dev server).
     cors_origins: list[str] = ["http://localhost:5173"]
