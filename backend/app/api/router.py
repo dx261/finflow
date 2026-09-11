@@ -25,6 +25,7 @@ from app.modules.reconciliation.router import (
 )
 from app.modules.reconciliation.router import router as reconciliation_router
 from app.modules.recurring.router import router as recurring_router
+from app.modules.retrieval.router import router as retrieval_router
 from app.modules.statements.router import router as statements_router
 
 logger = logging.getLogger("finflow")
@@ -41,6 +42,7 @@ api_router.include_router(allocations_router)
 api_router.include_router(reconciliation_router)
 api_router.include_router(reconciliation_payments_router)
 api_router.include_router(forecast_router)
+api_router.include_router(retrieval_router)
 
 
 async def check_database() -> str:
