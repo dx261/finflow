@@ -5,6 +5,7 @@ state machine (TASK-024). This service owns CRUD and ownership checks.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.accounts.models import Account
 from app.modules.payments.models import PaymentPlan, PaymentStatus
 from app.modules.payments.repository import PaymentRepository
-from app.modules.payments.schemas import PaymentCreate, PaymentUpdate
+from app.modules.payments.schemas import ManualExecution, PaymentCreate, PaymentUpdate
 from app.modules.payments.state_machine import assert_transition
 
 _EDITABLE_STATUSES = {PaymentStatus.DRAFT, PaymentStatus.PLANNED}
@@ -73,5 +74,36 @@ class PaymentService:
         payment = await self.get_payment(user_id, payment_id)
         assert_transition(payment.status, target)
         payment.status = target
+        await self.session.commit()
+        return payment
+
+    async def manual_execution(
+        self, user_id: uuid.UUID, payment_id: uuid.UUID, payload: ManualExecution
+    ) -> PaymentPlan:
+        """Record that the user claims to have executed the payment.
+
+        This marks the payment ``MANUALLY_EXECUTED`` — it does NOT settle
+        it. Settlement only happens after a matching bank transaction is
+        reconciled (Phase 5).
+        """
+        payment = await self.get_payment(user_id, payment_id)
+
+        if payment.status == PaymentStatus.RESERVED:
+            assert_transition(payment.status, PaymentStatus.WAITING_MANUAL_EXECUTION)
+            payment.status = PaymentStatus.WAITING_MANUAL_EXECUTION
+        if payment.status != PaymentStatus.WAITING_MANUAL_EXECUTION:
+            raise ConflictError("Payment must be reserved and waiting for manual execution.")
+
+        if payload.account_id is not None:
+            account = await self.session.get(Account, payload.account_id)
+            if account is None or account.user_id != user_id:
+                raise NotFoundError("Account not found.")
+
+        assert_transition(payment.status, PaymentStatus.MANUALLY_EXECUTED)
+        payment.status = PaymentStatus.MANUALLY_EXECUTED
+        payment.manual_execution_at = payload.executed_at or datetime.now(UTC)
+        payment.manual_execution_account_id = payload.account_id
+        payment.manual_execution_note = payload.note
+        payment.bank_reference = payload.bank_reference
         await self.session.commit()
         return payment

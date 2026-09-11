@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.modules.auth.deps import CurrentUser, OwnerUser
 from app.modules.payments.models import PaymentStatus
 from app.modules.payments.schemas import (
+    ManualExecution,
     PaymentCreate,
     PaymentRead,
     PaymentTransition,
@@ -76,4 +77,21 @@ async def transition_payment(
 ) -> PaymentRead:
     return PaymentRead.model_validate(
         await PaymentService(session).transition(owner.id, payment_id, payload.target_status)
+    )
+
+
+@router.post("/{payment_id}/manual-execution", response_model=PaymentRead)
+async def manual_execution(
+    payment_id: uuid.UUID,
+    payload: ManualExecution,
+    owner: OwnerUser,
+    session: DbSession,
+) -> PaymentRead:
+    """Record the user's claim that the payment was executed at the bank.
+
+    The payment becomes ``MANUALLY_EXECUTED`` — settlement still requires
+    reconciliation against a real bank transaction.
+    """
+    return PaymentRead.model_validate(
+        await PaymentService(session).manual_execution(owner.id, payment_id, payload)
     )

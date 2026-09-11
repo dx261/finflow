@@ -35,6 +35,13 @@ class PaymentTransition(BaseModel):
     target_status: PaymentStatus
 
 
+class ManualExecution(BaseModel):
+    executed_at: datetime | None = None
+    account_id: uuid.UUID | None = None
+    note: str | None = None
+    bank_reference: str | None = None
+
+
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
