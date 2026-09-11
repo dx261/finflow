@@ -16,6 +16,7 @@ from app.modules.accounts.schemas import (
     BalanceSnapshotCreate,
     BalanceSnapshotRead,
 )
+from app.modules.allocation.service import sum_reserved_amount
 from app.modules.audit.service import AuditService
 from app.modules.auth.models import User, UserRole
 
@@ -32,21 +33,19 @@ class AccountService:
         """Quantize a money value to 2 decimal places."""
         return value.quantize(Decimal("0.01"))
 
-    def reserved_amount(self, account: Account) -> Decimal:
-        """Virtual funds reserved for future payment allocations.
+    async def reserved_amount(self, account: Account) -> Decimal:
+        """Virtual funds reserved for this account (sum of RESERVED
+        allocations). Derived on read — never persisted."""
+        return await sum_reserved_amount(self.session, account.id)
 
-        Currently zero because allocations do not exist yet; TASK-031
-        (virtual reservation) sums the account's active FundAllocations
-        here. The value is never persisted — it is derived on read.
-        """
-        return Decimal("0.00")
-
-    def planning_available(self, account: Account) -> Decimal:
+    async def planning_available(self, account: Account) -> Decimal:
         """actual_balance - reserved_amount - minimum_balance (§13)."""
-        value = account.actual_balance - self.reserved_amount(account) - account.minimum_balance
+        reserved = await self.reserved_amount(account)
+        value = account.actual_balance - reserved - account.minimum_balance
         return self._money(value)
 
-    def to_read(self, account: Account) -> AccountRead:
+    async def to_read(self, account: Account) -> AccountRead:
+        reserved = await self.reserved_amount(account)
         return AccountRead(
             id=account.id,
             user_id=account.user_id,
@@ -60,8 +59,10 @@ class AccountService:
             minimum_balance=account.minimum_balance,
             include_in_allocation=account.include_in_allocation,
             status=account.status,
-            reserved_amount=self.reserved_amount(account),
-            planning_available=self.planning_available(account),
+            reserved_amount=self._money(reserved),
+            planning_available=self._money(
+                account.actual_balance - reserved - account.minimum_balance
+            ),
             created_at=account.created_at,
             updated_at=account.updated_at,
         )
@@ -70,11 +71,11 @@ class AccountService:
 
     async def list_accounts(self, user_id: uuid.UUID) -> list[AccountRead]:
         accounts = await self.repository.list_by_user(user_id)
-        return [self.to_read(account) for account in accounts]
+        return [await self.to_read(account) for account in accounts]
 
     async def get_account(self, account_id: uuid.UUID, current_user: User) -> AccountRead:
         account = await self._owned_account(account_id, current_user)
-        return self.to_read(account)
+        return await self.to_read(account)
 
     async def create_account(self, user_id: uuid.UUID, payload: AccountCreate) -> AccountRead:
         account = await self.repository.create(user_id, payload)
@@ -83,16 +84,16 @@ class AccountService:
             action="ACCOUNT_CREATED",
             resource_type="account",
             resource_id=str(account.id),
-            after_data=self.to_read(account).model_dump(mode="json"),
+            after_data=(await self.to_read(account)).model_dump(mode="json"),
         )
         await self.session.commit()
-        return self.to_read(account)
+        return await self.to_read(account)
 
     async def update_account(
         self, account_id: uuid.UUID, payload: AccountUpdate, current_user: User
     ) -> AccountRead:
         account = await self._owned_account(account_id, current_user)
-        before_data = self.to_read(account).model_dump(mode="json")
+        before_data = (await self.to_read(account)).model_dump(mode="json")
         updated = await self.repository.update(account, payload)
         await AuditService(self.session).record(
             user_id=current_user.id,
@@ -100,10 +101,10 @@ class AccountService:
             resource_type="account",
             resource_id=str(account_id),
             before_data=before_data,
-            after_data=self.to_read(updated).model_dump(mode="json"),
+            after_data=(await self.to_read(updated)).model_dump(mode="json"),
         )
         await self.session.commit()
-        return self.to_read(updated)
+        return await self.to_read(updated)
 
     async def delete_account(self, account_id: uuid.UUID, current_user: User) -> None:
         account = await self._owned_account(account_id, current_user)
@@ -126,7 +127,7 @@ class AccountService:
         snapshot = await self.repository.create_snapshot(
             account_id=account.id,
             balance=account.actual_balance,
-            available_balance=self.planning_available(account),
+            available_balance=await self.planning_available(account),
             snapshot_date=payload.snapshot_date or date.today(),
             source=payload.source,
         )
