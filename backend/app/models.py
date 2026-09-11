@@ -12,4 +12,5 @@ from app.modules.auth.models import User  # noqa: F401
 from app.modules.banks.models import Bank  # noqa: F401
 from app.modules.categories.models import Category  # noqa: F401
 from app.modules.payments.models import PaymentPlan  # noqa: F401
+from app.modules.recurring.models import RecurringPayment  # noqa: F401
 from app.modules.statements.models import ImportError, StatementImport, Transaction  # noqa: F401

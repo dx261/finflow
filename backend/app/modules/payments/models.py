@@ -68,3 +68,12 @@ class PaymentPlan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     manual_execution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     bank_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Idempotency key for recurring generation: a plan created by a
+    # recurring payment for a specific occurrence date.
+    source_recurring_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("recurring_payments.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+    occurrence_date: Mapped[date | None] = mapped_column(Date, nullable=True)

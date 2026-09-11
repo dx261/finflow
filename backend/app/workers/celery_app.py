@@ -6,6 +6,8 @@ Redis is the broker and result backend. Tasks are auto-discovered from
     celery -A app.workers.celery_app worker
 """
 
+from datetime import timedelta
+
 from celery import Celery
 
 import app.models  # noqa: F401  (register all models on Base.metadata)
@@ -28,3 +30,11 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
 )
+
+celery_app.conf.beat_schedule = {
+    "generate-recurring-plans-daily": {
+        "task": "recurring.generate_plans",
+        "schedule": timedelta(days=1),
+        "args": (30,),
+    }
+}
