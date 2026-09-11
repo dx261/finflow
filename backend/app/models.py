@@ -15,4 +15,5 @@ from app.modules.categories.models import Category  # noqa: F401
 from app.modules.payments.models import PaymentPlan  # noqa: F401
 from app.modules.reconciliation.models import Reconciliation  # noqa: F401
 from app.modules.recurring.models import RecurringPayment  # noqa: F401
+from app.modules.relations.models import TransactionRelation  # noqa: F401
 from app.modules.statements.models import ImportError, StatementImport, Transaction  # noqa: F401
