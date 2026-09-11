@@ -18,6 +18,7 @@ from app.modules.allocation.router import router as allocations_router
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.banks.router import router as banks_router
+from app.modules.forecast.router import router as forecast_router
 from app.modules.payments.router import router as payments_router
 from app.modules.reconciliation.router import (
     payments_router as reconciliation_payments_router,
@@ -39,6 +40,7 @@ api_router.include_router(recurring_router)
 api_router.include_router(allocations_router)
 api_router.include_router(reconciliation_router)
 api_router.include_router(reconciliation_payments_router)
+api_router.include_router(forecast_router)
 
 
 async def check_database() -> str:
