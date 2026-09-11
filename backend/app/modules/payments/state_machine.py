@@ -13,13 +13,16 @@ TRANSITIONS: dict[PaymentStatus, set[PaymentStatus]] = {
     PaymentStatus.DRAFT: {PaymentStatus.PLANNED},
     PaymentStatus.PLANNED: {PaymentStatus.ALLOCATED, PaymentStatus.CANCELLED},
     PaymentStatus.ALLOCATED: {PaymentStatus.RESERVED},
+    # RESERVED -> PLANNED is the reservation-release path (§50).
     PaymentStatus.RESERVED: {
         PaymentStatus.WAITING_MANUAL_EXECUTION,
         PaymentStatus.CANCELLED,
+        PaymentStatus.PLANNED,
     },
     PaymentStatus.WAITING_MANUAL_EXECUTION: {
         PaymentStatus.MANUALLY_EXECUTED,
         PaymentStatus.CANCELLED,
+        PaymentStatus.PLANNED,
     },
     PaymentStatus.MANUALLY_EXECUTED: {
         PaymentStatus.RECONCILING,

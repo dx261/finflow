@@ -45,7 +45,7 @@ class PaymentMatchSide:
 @dataclass(frozen=True)
 class TransactionMatchSide:
     amount: Decimal
-    transaction_date: date
+    transaction_date: date | None
     counterparty: str | None
     reference: str | None
     account_id: str
@@ -70,7 +70,9 @@ def account_score(payment_account_id: str, txn_account_id: str) -> float:
     return 1.0 if payment_account_id == txn_account_id else 0.0
 
 
-def date_score(payment_date: date, txn_date: date) -> float:
+def date_score(payment_date: date | None, txn_date: date | None) -> float:
+    if payment_date is None or txn_date is None:
+        return 0.5  # neutral — missing date
     delta = abs((payment_date - txn_date).days)
     if delta == 0:
         return 1.0
@@ -119,8 +121,9 @@ def score_match(
     present: list[tuple[float, float]] = [
         (w.amount, amount),
         (w.account, account),
-        (w.date, date),
     ]
+    if payment.planned_date and txn.transaction_date:
+        present.append((w.date, date))
     if payment.payee_name and txn.counterparty:
         present.append((w.counterparty, counterparty))
     if payment.bank_reference and txn.reference:
