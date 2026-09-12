@@ -10,6 +10,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    // Workaround: vite 8's rolldown-based emptyOutDir silently kills the
+    // build on Windows when dist/ already exists (render never runs, build
+    // exits with code 127 / 0 and writes nothing). Skipping the empty step
+    // keeps iterative local builds working; hashed asset names mean stale
+    // files from earlier builds are simply unused. `rm -rf dist` restores a
+    // perfectly clean output whenever wanted.
+    emptyOutDir: false,
+  },
   server: {
     port: 5173,
     proxy: {
