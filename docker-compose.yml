@@ -1,8 +1,13 @@
-# FinFlow — production infrastructure.
+# FinFlow — production infrastructure (TASK-002/005, Phase 8).
 #
-# Only Nginx is exposed externally; PostgreSQL and Redis stay on the
-# internal Docker network. TASK-002 extends this file with the api,
-# worker, beat and nginx services.
+# Only Nginx (ports 80/443) is exposed externally; PostgreSQL and Redis
+# stay on the internal Docker network. The API runs Alembic migrations on
+# boot and then serves requests; Celery worker + beat handle async imports
+# and recurring plan generation.
+#
+# Required in .env: SECRET_KEY (strong random value, >= 32 bytes).
+#   cp .env.example .env   # then edit secrets
+#   docker compose up -d --build
 name: finflow
 
 services:
@@ -34,6 +39,98 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  api:
+    build:
+      context: backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finflow}:${POSTGRES_PASSWORD:-finflow}@postgres:5432/${POSTGRES_DB:-finflow}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost"]}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      DATA_DIR: /app/data
+    volumes:
+      - uploads_data:/app/data/uploads
+    # Migrations run on boot so a fresh volume works out of the box.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request,sys;sys.exit(0) if urllib.request.urlopen(\"http://localhost:8000/api/v1/health\", timeout=3).status == 200 else sys.exit(1)"']
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  worker:
+    build:
+      context: backend
+    restart: unless-stopped
+    command: ['celery', '-A', 'app.workers.celery_app', 'worker', '--loglevel=info']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finflow}:${POSTGRES_PASSWORD:-finflow}@postgres:5432/${POSTGRES_DB:-finflow}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      DATA_DIR: /app/data
+    volumes:
+      - uploads_data:/app/data/uploads
+    healthcheck:
+      test: ['CMD-SHELL', 'celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  beat:
+    build:
+      context: backend
+    restart: unless-stopped
+    command: ['celery', '-A', 'app.workers.celery_app', 'beat', '--loglevel=info']
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finflow}:${POSTGRES_PASSWORD:-finflow}@postgres:5432/${POSTGRES_DB:-finflow}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      DATA_DIR: /app/data
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '443:443'
+    # Mount certificates to enable the TLS block in nginx/nginx.conf.
+    # volumes:
+    #   - ./certs:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost/api/v1/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   postgres_data:
