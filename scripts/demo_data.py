@@ -1,0 +1,261 @@
+"""FinFlow demo data generator (TASK-061).
+
+Seeds a realistic personal-finance dataset so the UI has something to
+show: four bank accounts, recurring bills, and payments in every state
+the state machine supports (DRAFT .. MANUALLY_EXECUTED), including two
+that run the real allocation engine.
+
+Usage (from the backend directory so `app` is importable):
+
+    cd backend
+    uv run python ../scripts/demo_data.py            # create (fails if user exists)
+    uv run python ../scripts/demo_data.py --reset     # drop demo user+data, recreate
+
+The script talks to the service layer directly against whatever
+DATABASE_URL is configured (dev PostgreSQL by default).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from datetime import date, timedelta
+from decimal import Decimal
+from pathlib import Path
+
+# Make the backend package importable when run from either repo root or backend.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+
+from app.core.database import AsyncSessionLocal  # noqa: E402
+from app.modules.accounts.models import AccountType  # noqa: E402
+from app.modules.accounts.schemas import AccountCreate  # noqa: E402
+from app.modules.accounts.service import AccountService  # noqa: E402
+from app.modules.allocation.service import AllocationService  # noqa: E402
+from app.modules.auth.schemas import UserCreate  # noqa: E402
+from app.modules.auth.service import AuthService  # noqa: E402
+from app.modules.payments.models import PaymentPriority, PaymentStatus  # noqa: E402
+from app.modules.payments.schemas import ManualExecution, PaymentCreate  # noqa: E402
+from app.modules.payments.service import PaymentService  # noqa: E402
+from app.modules.recurring.models import RecurringFrequency  # noqa: E402
+from app.modules.recurring.schemas import RecurringCreate  # noqa: E402
+from app.modules.recurring.service import RecurringService  # noqa: E402
+
+DEMO_USERNAME = "demoowner"
+DEMO_EMAIL = "demoowner@finflow.dev"
+DEMO_PASSWORD = "demo123456"
+
+TODAY = date.today()
+
+
+async def _delete_user_data(session, user_id) -> None:
+    """Delete a user and everything owned by them, in FK-safe order.
+
+    ``fund_allocations.account_id`` intentionally has no ON DELETE CASCADE
+    (money records are never silently dropped), so the reset must remove
+    dependent rows explicitly.
+    """
+    from sqlalchemy import delete, select
+
+    from app.modules.accounts.models import Account, AccountBalanceSnapshot
+    from app.modules.allocation.models import FundAllocation
+    from app.modules.forecast.models import CashFlowPlan
+    from app.modules.payments.models import PaymentPlan
+    from app.modules.recurring.models import RecurringPayment
+    from app.modules.statements.models import StatementImport, Transaction
+
+    account_ids = list(
+        await session.scalars(select(Account.id).where(Account.user_id == user_id))
+    )
+
+    if account_ids:
+        await session.execute(
+            delete(FundAllocation).where(FundAllocation.account_id.in_(account_ids))
+        )
+        await session.execute(
+            delete(AccountBalanceSnapshot).where(
+                AccountBalanceSnapshot.account_id.in_(account_ids)
+            )
+        )
+        await session.execute(
+            delete(Transaction).where(Transaction.account_id.in_(account_ids))
+        )
+        await session.execute(
+            delete(StatementImport).where(StatementImport.account_id.in_(account_ids))
+        )
+        await session.execute(delete(Account).where(Account.user_id == user_id))
+
+    await session.execute(delete(PaymentPlan).where(PaymentPlan.user_id == user_id))
+    await session.execute(delete(RecurringPayment).where(RecurringPayment.user_id == user_id))
+    await session.execute(delete(CashFlowPlan).where(CashFlowPlan.user_id == user_id))
+    from app.modules.auth.models import User
+
+    await session.execute(delete(User).where(User.id == user_id))
+    await session.commit()
+
+
+async def main(reset: bool) -> None:
+    async with AsyncSessionLocal() as session:
+        auth = AuthService(session)
+        accounts_svc = AccountService(session)
+        payments_svc = PaymentService(session)
+        recurring_svc = RecurringService(session)
+        allocation_svc = AllocationService(session)
+
+        user = await auth.repository.get_by_username(DEMO_USERNAME)
+        if user is not None:
+            if not reset:
+                print(
+                    f"User '{DEMO_USERNAME}' already exists — use --reset to rebuild demo data."
+                )
+                return
+            print(f"Removing existing demo user {DEMO_USERNAME} and dependent data...")
+            await _delete_user_data(session, user.id)
+            user = None
+
+        if user is None:
+            user = await auth.register(
+                UserCreate(
+                    username=DEMO_USERNAME,
+                    email=DEMO_EMAIL,
+                    password=DEMO_PASSWORD,
+                )
+            )
+            print(f"Created demo OWNER: {DEMO_USERNAME} / {DEMO_PASSWORD}")
+
+        # --- Banks ---------------------------------------------------------
+        from app.modules.banks.models import Bank
+        from sqlalchemy import select
+
+        banks = list(await session.scalars(select(Bank)))
+        bank_by_code = {b.code: b for b in banks}
+        print(f"Using {len(banks)} seeded banks")
+
+        # --- Accounts ------------------------------------------------------
+        def mk(bank_code: str, name: str, balance: str, minimum: str, atype=AccountType.CHECKING) -> AccountCreate:
+            return AccountCreate(
+                bank_id=bank_by_code[bank_code].id,
+                name=name,
+                masked_account_no=None,
+                account_type=atype,
+                currency="CNY",
+                actual_balance=Decimal(balance),
+                minimum_balance=Decimal(minimum),
+                include_in_allocation=True,
+            )
+
+        accounts = []
+        specs = [
+            ("CMB", "工资卡（招行）", "128530.42", "10000", AccountType.CHECKING),
+            ("ICBC", "房贷账户（工行）", "85200.00", "20000", AccountType.CHECKING),
+            ("CCB", "日常消费（建行）", "32410.80", "5000", AccountType.CHECKING),
+            ("ICBC", "备用储蓄（工行）", "200000.00", "50000", AccountType.SAVINGS),
+        ]
+        for bank_code, name, bal, minimum, atype in specs:
+            acc = await accounts_svc.create_account(
+                user.id, mk(bank_code, name, bal, minimum, atype)
+            )
+            accounts.append(acc)
+            print(f"  account: {acc.name} = {acc.actual_balance}")
+
+        acc_by_key = {acc.name: acc for acc in accounts}
+
+        # --- Recurring bills ----------------------------------------------
+        recurring = [
+            ("房贷还款", "6200.00", RecurringFrequency.MONTHLY, 1, "房贷账户（工行）"),
+            ("房租", "4200.00", RecurringFrequency.MONTHLY, 5, "工资卡（招行）"),
+            ("水电网", "380.00", RecurringFrequency.MONTHLY, 15, "日常消费（建行）"),
+            ("信用卡还款", "8000.00", RecurringFrequency.MONTHLY, 20, "工资卡（招行）"),
+            ("话费", "129.00", RecurringFrequency.MONTHLY, 8, "日常消费（建行）"),
+        ]
+        for name, amount, freq, dom, pref in recurring:
+            await recurring_svc.create(
+                user.id,
+                RecurringCreate(
+                    name=name,
+                    amount=Decimal(amount),
+                    currency="CNY",
+                    frequency=freq,
+                    day_of_month=dom,
+                    start_date=TODAY - timedelta(days=30),
+                    preferred_account_id=acc_by_key[pref].id,
+                    priority=PaymentPriority.HIGH if dom == 1 else PaymentPriority.NORMAL,
+                ),
+            )
+        print(f"  recurring bills: {len(recurring)}")
+
+        # --- Payments across the state machine -----------------------------
+        def pay(name: str, amount: str, days: int, priority=PaymentPriority.NORMAL, preferred=None):
+            return PaymentCreate(
+                name=name,
+                amount=Decimal(amount),
+                currency="CNY",
+                planned_date=TODAY + timedelta(days=days),
+                priority=priority,
+                preferred_account_id=preferred,
+            )
+
+        # DRAFT
+        p_draft = await payments_svc.create_payment(user.id, pay("新手机分期", "6999.00", 25))
+        print(f"  payment DRAFT: {p_draft.name}")
+
+        # PLANNED
+        p_planned = await payments_svc.create_payment(
+            user.id, pay("9月车险", "5800.00", 10, PaymentPriority.HIGH, acc_by_key["工资卡（招行）"].id)
+        )
+        await payments_svc.transition(user.id, p_planned.id, PaymentStatus.PLANNED)
+        print(f"  payment PLANNED: {p_planned.name}")
+
+        # ALLOCATED (real allocation engine)
+        p_alloc = await payments_svc.create_payment(user.id, pay("家庭聚餐基金", "3000.00", 6))
+        await payments_svc.transition(user.id, p_alloc.id, PaymentStatus.PLANNED)
+        await allocation_svc.generate_preview(user.id, p_alloc.id)
+        print(f"  payment ALLOCATED: {p_alloc.name}")
+
+        # RESERVED (preview + confirm = virtual reservation)
+        p_reserved = await payments_svc.create_payment(
+            user.id, pay("季度物业费", "2400.00", 15, preferred=acc_by_key["备用储蓄（工行）"].id)
+        )
+        await payments_svc.transition(user.id, p_reserved.id, PaymentStatus.PLANNED)
+        await allocation_svc.generate_preview(user.id, p_reserved.id)
+        await allocation_svc.confirm_reservation(user.id, p_reserved.id)
+        print(f"  payment RESERVED: {p_reserved.name}")
+
+        # WAITING_MANUAL_EXECUTION
+        p_waiting = await payments_svc.create_payment(
+            user.id, pay("牙科检查", "1200.00", 3, preferred=acc_by_key["日常消费（建行）"].id)
+        )
+        await payments_svc.transition(user.id, p_waiting.id, PaymentStatus.PLANNED)
+        await allocation_svc.generate_preview(user.id, p_waiting.id)
+        await allocation_svc.confirm_reservation(user.id, p_waiting.id)
+        await payments_svc.transition(user.id, p_waiting.id, PaymentStatus.WAITING_MANUAL_EXECUTION)
+        print(f"  payment WAITING_MANUAL_EXECUTION: {p_waiting.name}")
+
+        # MANUALLY_EXECUTED
+        p_done = await payments_svc.create_payment(
+            user.id, pay("8月宽带续费", "600.00", -5, preferred=acc_by_key["日常消费（建行）"].id)
+        )
+        await payments_svc.transition(user.id, p_done.id, PaymentStatus.PLANNED)
+        await allocation_svc.generate_preview(user.id, p_done.id)
+        await allocation_svc.confirm_reservation(user.id, p_done.id)
+        await payments_svc.transition(user.id, p_done.id, PaymentStatus.WAITING_MANUAL_EXECUTION)
+        await payments_svc.manual_execution(
+            user.id,
+            p_done.id,
+            ManualExecution(
+                executed_at=None,
+                account_id=acc_by_key["日常消费（建行）"].id,
+                bank_reference="CMB-20260807-0032",
+                note="网银手动续费",
+            ),
+        )
+        print(f"  payment MANUALLY_EXECUTED: {p_done.name}")
+
+        print()
+        print("Demo data ready. Login:")
+        print(f"  username : {DEMO_USERNAME}")
+        print(f"  password : {DEMO_PASSWORD}")
+
+
+if __name__ == "__main__":
+    reset = "--reset" in sys.argv
+    asyncio.run(main(reset))
