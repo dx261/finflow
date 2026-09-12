@@ -125,13 +125,58 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   relations)
 - **Phase 6 Forecast** — COMPLETE (cash flow plan model, forecast engine,
   low-balance warnings, 7/30/90-day endpoint)
-- **Phase 7 Frontend** — IN PROGRESS (app shell, login, dashboard,
-  accounts, transactions, payments, reconciliation, forecast, audit,
-  settings)
+- **Phase 7 Frontend** — COMPLETE (app shell, login, dashboard, accounts,
+  account detail, statement import, transaction explorer, payments,
+  allocation visualizer, manual execution, reconciliation workbench,
+  forecast dashboard, audit, settings)
+- **Phase 8 Productionization** — COMPLETE (production Docker Compose with
+  api/worker/beat/nginx, hardened nginx config with security headers,
+  health checks on every service, structured JSON logging, backup &
+  restore scripts, demo data generator, end-to-end test)
 
-Backend: **206 tests passing**, ruff/black/mypy clean, Alembic migrations
-applied on PostgreSQL. Frontend: vue-tsc/eslint/build clean; full-stack
-smoke test verified on real PostgreSQL + Redis.
+Backend: **206 unit/integration tests passing**, ruff/black/mypy clean,
+Alembic migrations applied on PostgreSQL. Frontend: vue-tsc/eslint/build
+clean. Full production stack verified end-to-end on real PostgreSQL +
+Redis behind nginx.
+
+## Operations
+
+### Production deploy
+
+```bash
+cp .env.example .env     # set a strong SECRET_KEY, review DATABASE_URL
+docker compose up -d --build
+```
+
+Only Nginx (port 80, optionally 443) is exposed. The API runs Alembic
+migrations on boot; Celery worker + beat handle async statement imports
+and recurring plan generation. Every service has a health check.
+
+TLS: mount certificates at `/etc/nginx/ssl/` and uncomment the HTTPS
+server block in `nginx/nginx.conf`.
+
+### Demo data
+
+```bash
+cd backend
+uv run python ../scripts/demo_data.py             # create demo owner
+uv run python ../scripts/demo_data.py --reset     # rebuild from scratch
+```
+
+Login with `demoowner` / `demo123456`. The generator creates four
+accounts, five recurring bills and payments in every state (DRAFT ..
+MANUALLY_EXECUTED), including real allocation-engine runs.
+
+### Backup & restore
+
+```bash
+./scripts/backup.sh                               # -> ./backups/*.tar.gz
+COMPOSE_FILE=docker-compose.yml ./scripts/backup.sh   # production stack
+./scripts/restore.sh backups/finflow-backup-<stamp>.tar.gz
+```
+
+Backups contain the PostgreSQL dump, a best-effort Redis snapshot and
+uploaded statement files.
 
 ## Tooling
 

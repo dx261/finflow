@@ -31,6 +31,7 @@ from app.modules.accounts.models import AccountType  # noqa: E402
 from app.modules.accounts.schemas import AccountCreate  # noqa: E402
 from app.modules.accounts.service import AccountService  # noqa: E402
 from app.modules.allocation.service import AllocationService  # noqa: E402
+from app.modules.auth.models import UserRole  # noqa: E402
 from app.modules.auth.schemas import UserCreate  # noqa: E402
 from app.modules.auth.service import AuthService  # noqa: E402
 from app.modules.payments.models import PaymentPriority, PaymentStatus  # noqa: E402
@@ -120,11 +121,29 @@ async def main(reset: bool) -> None:
                     password=DEMO_PASSWORD,
                 )
             )
+
+        # The demo is meant to show OWNER capabilities (create accounts,
+        # run allocations). On a fresh DB the first user becomes OWNER
+        # automatically; if the DB has history, force it here so the demo
+        # is deterministic. A dev-tool data assignment, not a model change.
+        if user.role != UserRole.OWNER:
+            user.role = UserRole.OWNER
+            await session.commit()
+            print(f"Promoted demo user to OWNER: {DEMO_USERNAME}")
+
+        if user.id is not None:
             print(f"Created demo OWNER: {DEMO_USERNAME} / {DEMO_PASSWORD}")
 
-        # --- Banks ---------------------------------------------------------
+        # --- Banks / categories --------------------------------------------
+        # The app seeds these on startup; on a freshly migrated (empty)
+        # database the seed hasn't run yet, so do it here to be robust.
         from app.modules.banks.models import Bank
+        from app.modules.banks.seed import seed_default_banks
+        from app.modules.categories.seed import seed_default_categories
         from sqlalchemy import select
+
+        await seed_default_banks(session)
+        await seed_default_categories(session)
 
         banks = list(await session.scalars(select(Bank)))
         bank_by_code = {b.code: b for b in banks}
