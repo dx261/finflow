@@ -21,6 +21,7 @@ async function submit(): Promise<void> {
     if (mode.value === 'login') {
       await auth.login(login.value, password.value)
       ElMessage.success('登录成功')
+      await router.push({ name: 'dashboard' })
     } else {
       await auth.register(username.value, email.value, password.value)
       ElMessage.success('注册成功，请登录')
@@ -65,12 +66,7 @@ function switchMode(): void {
             autocomplete="current-password"
           />
         </el-form-item>
-        <el-button
-          type="primary"
-          native-type="submit"
-          class="submit-btn"
-          :loading="loading"
-        >
+        <el-button type="primary" native-type="submit" class="submit-btn" :loading="loading">
           {{ mode === 'login' ? '登 录' : '注 册' }}
         </el-button>
       </el-form>

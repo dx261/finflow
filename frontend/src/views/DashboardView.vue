@@ -29,7 +29,9 @@ onMounted(async () => {
     ])
     accounts.value = accRes.data
     forecast.value = fcRes.data
-    upcoming.value = payRes.data.filter((p) => ['PLANNED', 'RESERVED', 'WAITING_MANUAL_EXECUTION'].includes(p.status))
+    upcoming.value = payRes.data.filter((p) =>
+      ['PLANNED', 'RESERVED', 'WAITING_MANUAL_EXECUTION'].includes(p.status),
+    )
 
     totals.actual = accounts.value.reduce((sum, a) => sum + money(a.actual_balance), 0)
     totals.planning = accounts.value.reduce((sum, a) => sum + money(a.planning_available), 0)
@@ -96,16 +98,28 @@ const statusTag: Record<string, string> = {
   <div v-loading="loading">
     <el-row :gutter="16">
       <el-col :span="6">
-        <el-card class="stat-card"><div class="stat-label">账户总余额</div><div class="stat-value">¥{{ totals.actual.toFixed(2) }}</div></el-card>
+        <el-card class="stat-card"
+          ><div class="stat-label">账户总余额</div>
+          <div class="stat-value">¥{{ totals.actual.toFixed(2) }}</div></el-card
+        >
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card"><div class="stat-label">可规划资金</div><div class="stat-value stat-green">¥{{ totals.planning.toFixed(2) }}</div></el-card>
+        <el-card class="stat-card"
+          ><div class="stat-label">可规划资金</div>
+          <div class="stat-value stat-green">¥{{ totals.planning.toFixed(2) }}</div></el-card
+        >
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card"><div class="stat-label">虚拟预占</div><div class="stat-value stat-orange">¥{{ totals.reserved.toFixed(2) }}</div></el-card>
+        <el-card class="stat-card"
+          ><div class="stat-label">虚拟预占</div>
+          <div class="stat-value stat-orange">¥{{ totals.reserved.toFixed(2) }}</div></el-card
+        >
       </el-col>
       <el-col :span="6">
-        <el-card class="stat-card"><div class="stat-label">待付款计划</div><div class="stat-value">{{ upcoming.length }} 笔</div></el-card>
+        <el-card class="stat-card"
+          ><div class="stat-label">待付款计划</div>
+          <div class="stat-value">{{ upcoming.length }} 笔</div></el-card
+        >
       </el-col>
     </el-row>
 
@@ -134,7 +148,9 @@ const statusTag: Record<string, string> = {
         </el-table-column>
         <el-table-column label="状态" width="180">
           <template #default="{ row }">
-            <el-tag :type="(statusTag[row.status] ?? 'info') as any" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="(statusTag[row.status] ?? 'info') as any" size="small">{{
+              row.status
+            }}</el-tag>
           </template>
         </el-table-column>
       </el-table>

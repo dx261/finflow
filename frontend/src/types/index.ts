@@ -102,7 +102,12 @@ export interface ForecastDay {
 export interface ForecastResponse {
   accounts: Record<string, ForecastDay[]>
   aggregate: ForecastDay[]
-  warnings: Array<{ account_id: string; date: string; projected_balance: string; minimum_balance: string }>
+  warnings: Array<{
+    account_id: string
+    date: string
+    projected_balance: string
+    minimum_balance: string
+  }>
 }
 
 export interface AuditLog {
