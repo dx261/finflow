@@ -10,6 +10,17 @@ const loading = ref(true)
 const dialogVisible = ref(false)
 const saving = ref(false)
 
+const manualVisible = ref(false)
+const manualSaving = ref(false)
+const manualPayment = ref<PaymentPlan | null>(null)
+const manualReserved = ref<Allocation[]>([])
+const manualForm = ref({
+  executed_at: '',
+  account_id: '',
+  bank_reference: '',
+  note: '',
+})
+
 const statusFilter = ref('')
 const form = ref({
   name: '',
@@ -101,16 +112,51 @@ async function transition(payment: PaymentPlan, target: string): Promise<void> {
   }
 }
 
-async function manualExecute(payment: PaymentPlan): Promise<void> {
+async function openManualExecute(payment: PaymentPlan): Promise<void> {
+  manualPayment.value = payment
+  manualForm.value = {
+    executed_at: new Date().toISOString().slice(0, 16),
+    account_id: payment.preferred_account_id ?? '',
+    bank_reference: '',
+    note: '',
+  }
+  manualReserved.value = []
+  manualVisible.value = true
   try {
-    const payload: Record<string, unknown> = {}
-    if (payment.preferred_account_id) payload.account_id = payment.preferred_account_id
-    await api.post(`/payments/${payment.id}/manual-execution`, payload)
+    const res = await api.get<Allocation[]>(`/payments/${payment.id}/allocations`)
+    manualReserved.value = res.data.filter((a) => a.status === 'RESERVED')
+    // Default to the account holding the largest reserved amount.
+    if (!manualForm.value.account_id && manualReserved.value.length > 0) {
+      manualForm.value.account_id = manualReserved.value[0].account_id
+    }
+  } catch {
+    // allocations load failure is non-fatal for execution
+  }
+}
+
+async function submitManualExecution(): Promise<void> {
+  if (!manualPayment.value) return
+  manualSaving.value = true
+  try {
+    const payload: Record<string, unknown> = {
+      executed_at: new Date(manualForm.value.executed_at).toISOString(),
+    }
+    if (manualForm.value.account_id) payload.account_id = manualForm.value.account_id
+    if (manualForm.value.bank_reference) payload.bank_reference = manualForm.value.bank_reference
+    if (manualForm.value.note) payload.note = manualForm.value.note
+    await api.post(`/payments/${manualPayment.value.id}/manual-execution`, payload)
     ElMessage.success('已标记人工执行完成')
+    manualVisible.value = false
     await load()
   } catch (error) {
     ElMessage.error(errorMessage(error))
+  } finally {
+    manualSaving.value = false
   }
+}
+
+function reservedAccountName(id: string): string {
+  return accounts.value.find((a) => a.id === id)?.name ?? id.slice(0, 8)
 }
 
 async function viewAllocations(payment: PaymentPlan): Promise<void> {
@@ -187,8 +233,8 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
             >
           </template>
           <template v-else-if="row.status === 'WAITING_MANUAL_EXECUTION'">
-            <el-button size="small" type="success" @click="manualExecute(row)"
-              >已人工执行</el-button
+            <el-button size="small" type="success" @click="openManualExecute(row)"
+              >标记已执行</el-button
             >
           </template>
         </template>
@@ -233,6 +279,61 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
         <el-button type="primary" :loading="saving" @click="createPayment">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="manualVisible" title="标记人工执行完成" width="520px">
+      <el-alert
+        v-if="manualPayment"
+        type="warning"
+        :closable="false"
+        class="manual-alert"
+        title="请先在你的银行完成真实转账，再在此确认。FinFlow 不会代付任何资金。"
+      />
+      <template v-if="manualPayment">
+        <el-descriptions :column="2" border size="small" class="manual-summary">
+          <el-descriptions-item label="付款计划">{{ manualPayment.name }}</el-descriptions-item>
+          <el-descriptions-item label="金额">¥{{ manualPayment.amount }}</el-descriptions-item>
+        </el-descriptions>
+
+        <h4 class="section-title">已预留资金（供参考）</h4>
+        <el-table v-if="manualReserved.length > 0" :data="manualReserved" size="small">
+          <el-table-column label="账户" min-width="150">
+            <template #default="{ row }">{{ reservedAccountName(row.account_id) }}</template>
+          </el-table-column>
+          <el-table-column label="预留金额" width="120" align="right">
+            <template #default="{ row }">¥{{ row.allocated_amount }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="没有已预留分配" :image-size="50" />
+
+        <el-form label-width="110px" class="manual-form">
+          <el-form-item label="执行时间" required>
+            <el-date-picker
+              v-model="manualForm.executed_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="实际付款账户">
+            <el-select v-model="manualForm.account_id" clearable style="width: 100%">
+              <el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="银行流水号">
+            <el-input v-model="manualForm.bank_reference" placeholder="可选" />
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model="manualForm.note" type="textarea" :rows="2" placeholder="可选" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="manualVisible = false">取消</el-button>
+        <el-button type="success" :loading="manualSaving" @click="submitManualExecution">
+          确认已完成人工执行
+        </el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -241,5 +342,18 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.manual-alert {
+  margin-bottom: 12px;
+}
+.manual-summary {
+  margin-bottom: 12px;
+}
+.section-title {
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+.manual-form {
+  margin-top: 12px;
 }
 </style>
