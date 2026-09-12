@@ -87,6 +87,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       DATA_DIR: /app/data
+      # Tasks run under asyncio.run() (fresh loop per task), so pooled
+      # connections bound to a previous loop raise "Event loop is closed".
+      # NullPool gives each task its own connection — same choice as tests.
+      DATABASE_POOLCLASS: "null"
     volumes:
       - uploads_data:/app/data/uploads
     healthcheck:

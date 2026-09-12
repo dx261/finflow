@@ -52,6 +52,22 @@ scripts/     Utility scripts (backup, demo data, ...)
 
 Requirements: [uv](https://docs.astral.sh/uv/), Node.js 20+, Docker.
 
+**One click (Windows):** double-click `start-dev.bat` (or `stop-dev.bat` to
+shut down). It brings up PostgreSQL + Redis in Docker, runs migrations, and
+starts the backend (:8000), the Celery worker and the frontend (:5173) —
+skipping anything already running. Logs land in `.run/logs/`.
+
+**One click (Git Bash / macOS / Linux):**
+
+```bash
+./scripts/start-dev.sh            # start everything
+./scripts/start-dev.sh --demo     # ... and seed demo data (demoowner/demo123456)
+./scripts/start-dev.sh --no-front # backend + worker only
+./scripts/stop-dev.sh             # stop the script-started processes
+```
+
+**Manually**, the same steps are:
+
 ```bash
 # 1. Start local infrastructure (PostgreSQL + Redis)
 docker compose -f docker-compose.dev.yml up -d
@@ -63,11 +79,19 @@ cd ../frontend && npm install
 # 3. Run the backend (http://localhost:8000, docs at /docs)
 cd backend && uv run uvicorn app.main:app --reload --port 8000
 
-# 4. Run the frontend (http://localhost:5173)
+# 4. Run the Celery worker (statement imports, async)
+cd backend && DATABASE_POOLCLASS=null uv run celery -A app.workers.celery_app worker
+
+# 5. Run the frontend (http://localhost:5173)
 cd frontend && npm run dev
 ```
 
-Health check: `GET http://localhost:8000/api/v1/health`
+Notes:
+- `DATABASE_POOLCLASS=null` on the worker is required: tasks run under a
+  fresh event loop each time, and pooling connections across loops raises
+  `Event loop is closed`. (On Windows, add `--pool=solo` when launching the
+  worker from a detached script.)
+- Health check: `GET http://localhost:8000/api/v1/health`
 
 ## Production
 

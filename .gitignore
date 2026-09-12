@@ -18,6 +18,9 @@ backend/data/
 data/
 uploads/
 
+# --- dev-runner state (start-dev.sh / stop-dev.sh) ---
+.run/
+
 # --- IDE / OS ---
 .idea/
 .vscode/*

@@ -3,7 +3,14 @@
 Redis is the broker and result backend. Tasks are auto-discovered from
 ``app.workers.tasks``. Run the worker with::
 
-    celery -A app.workers.celery_app worker
+    DATABASE_POOLCLASS=null celery -A app.workers.celery_app worker
+
+``DATABASE_POOLCLASS=null`` matters: tasks run under ``asyncio.run()``,
+which creates a fresh event loop per task. The default SQLAlchemy pool
+reuses connections across loops and fails with "Event loop is closed";
+NullPool gives each task its own connection (the tests use it too).
+On Windows, add ``--pool=solo`` to avoid billiard's prefork shared-memory
+issues when the worker is launched from a detached script.
 """
 
 from datetime import timedelta

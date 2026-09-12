@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
+import random
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
 PREFIX = f"{BASE_URL}/api/v1"
@@ -58,7 +59,9 @@ def put(client: httpx.Client, path: str, json=None, token: str | None = None) ->
 
 
 def main() -> int:
-    stamp = date.today().strftime("%Y%m%d%H%M")
+    # Random suffix so the suite can be re-run within the same minute without
+    # colliding on the viewer username or the statement-file fingerprint.
+    stamp = f"{date.today().strftime('%Y%m%d%H%M')}{random.randrange(1000, 9999)}"
     viewer_user = f"e2e_viewer_{stamp}"
     viewer_email = f"{viewer_user}@e2e.dev"
 
