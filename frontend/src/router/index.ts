@@ -52,6 +52,12 @@ const router = createRouter({
           meta: { title: '付款' },
         },
         {
+          path: 'allocations',
+          name: 'allocations',
+          component: () => import('@/views/AllocationsView.vue'),
+          meta: { title: '分配可视化' },
+        },
+        {
           path: 'reconciliation',
           name: 'reconciliation',
           component: () => import('@/views/ReconciliationView.vue'),
