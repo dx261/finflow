@@ -18,6 +18,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 COPY --from=builder /app/.venv /app/.venv
 COPY app ./app
+# Alembic needs its ini + migration files in the image so `alembic upgrade
+# head` can run on container boot (see docker-compose.yml).
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 EXPOSE 8000
 
