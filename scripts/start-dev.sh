@@ -93,14 +93,15 @@ else
 fi
 
 # --- 4. Celery worker --------------------------------------------------------
-# 用 [c]elery 字符类破开模式，避免匹配到检测命令自身
+# DATABASE_POOLCLASS=null: 每个 asyncio.run() 任务用独立连接，避免跨事件循环
+# 复用连接导致 "Event loop is closed"（与测试同款做法）。export 让启动的进程
+# 直接继承，pidfile 指向真正的 worker，stop 时 pidfile kill 即生效。
+# 用 [c]elery 字符类破开模式，避免匹配到检测命令自身。
 if proc_exists '[c]elery.*[c]elery_app'; then
   say "Celery worker 已在运行，跳过"
 else
-  # DATABASE_POOLCLASS=null: 每个 asyncio.run() 任务用独立连接，避免跨事件循环
-  # 复用连接导致 "Event loop is closed"（与测试同款做法）。
+  export DATABASE_POOLCLASS=null
   start_bg "Celery worker（账单导入）" "$RUN_DIR/worker.pid" "$LOG_DIR/worker.log" \
-    env DATABASE_POOLCLASS=null \
     uv run celery -A app.workers.celery_app worker --loglevel=INFO --pool=solo
   sleep 4
   proc_exists '[c]elery.*[c]elery_app' || warn "worker 好像没起来？看日志 $LOG_DIR/worker.log"
