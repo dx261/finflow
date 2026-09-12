@@ -117,6 +117,21 @@ Implemented incrementally following `CODING_PLAN.md`, one task at a time.
   `statements.process_import` task, upload dispatches async; verified
   end-to-end with a real worker + Redis + PostgreSQL)
 - **Phase 3 Transactions** — COMPLETE
+- **Phase 4 Treasury** — COMPLETE (payment plans, state machine, recurring
+  payments, allocation engine + minimum balance, allocation
+  preview/manual override/virtual reservation, manual execution)
+- **Phase 5 Reconciliation** — COMPLETE (weighted scoring, auto-matching,
+  review workbench, settlement, reservation release, refund/reversal
+  relations)
+- **Phase 6 Forecast** — COMPLETE (cash flow plan model, forecast engine,
+  low-balance warnings, 7/30/90-day endpoint)
+- **Phase 7 Frontend** — IN PROGRESS (app shell, login, dashboard,
+  accounts, transactions, payments, reconciliation, forecast, audit,
+  settings)
+
+Backend: **206 tests passing**, ruff/black/mypy clean, Alembic migrations
+applied on PostgreSQL. Frontend: vue-tsc/eslint/build clean; full-stack
+smoke test verified on real PostgreSQL + Redis.
 
 ## Tooling
 
