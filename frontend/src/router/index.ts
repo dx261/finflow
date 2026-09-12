@@ -40,6 +40,12 @@ const router = createRouter({
           meta: { title: '交易' },
         },
         {
+          path: 'statements',
+          name: 'statements',
+          component: () => import('@/views/StatementsView.vue'),
+          meta: { title: '账单导入' },
+        },
+        {
           path: 'payments',
           name: 'payments',
           component: () => import('@/views/PaymentsView.vue'),

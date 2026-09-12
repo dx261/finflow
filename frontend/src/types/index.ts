@@ -127,3 +127,47 @@ export interface ErrorBody {
   message: string
   trace_id: string | null
 }
+
+export type StatementImportStatus =
+  | 'UPLOADED'
+  | 'QUEUED'
+  | 'PARSING'
+  | 'PARTIAL_SUCCESS'
+  | 'SUCCESS'
+  | 'FAILED'
+
+export interface UploadResult {
+  import_id: string
+  status: StatementImportStatus
+  is_duplicate: boolean
+  message: string
+}
+
+export interface StatementImport {
+  id: string
+  account_id: string
+  original_filename: string
+  file_type: string
+  status: StatementImportStatus
+  statement_start_date: string | null
+  statement_end_date: string | null
+  total_rows: number
+  success_rows: number
+  failed_rows: number
+  created_at: string
+  completed_at: string | null
+}
+
+export interface ImportError {
+  id: string
+  row_number: number | null
+  field: string | null
+  raw_value: string | null
+  error_code: string
+  message: string
+}
+
+export interface StatementImportDetail {
+  import_record: StatementImport
+  errors: ImportError[]
+}

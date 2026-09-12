@@ -11,6 +11,7 @@ const navItems = [
   { path: '/dashboard', icon: 'Odometer', label: '仪表盘' },
   { path: '/accounts', icon: 'Wallet', label: '账户' },
   { path: '/transactions', icon: 'List', label: '交易' },
+  { path: '/statements', icon: 'UploadFilled', label: '账单导入' },
   { path: '/payments', icon: 'Calendar', label: '付款' },
   { path: '/reconciliation', icon: 'Checked', label: '对账' },
   { path: '/forecast', icon: 'TrendCharts', label: '现金流预测' },
