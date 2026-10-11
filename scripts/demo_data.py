@@ -26,20 +26,27 @@ from pathlib import Path
 # Make the backend package importable when run from either repo root or backend.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.modules.accounts.models import AccountType  # noqa: E402
-from app.modules.accounts.schemas import AccountCreate  # noqa: E402
-from app.modules.accounts.service import AccountService  # noqa: E402
-from app.modules.allocation.service import AllocationService  # noqa: E402
-from app.modules.auth.models import UserRole  # noqa: E402
-from app.modules.auth.schemas import UserCreate  # noqa: E402
-from app.modules.auth.service import AuthService  # noqa: E402
-from app.modules.payments.models import PaymentPriority, PaymentStatus  # noqa: E402
-from app.modules.payments.schemas import ManualExecution, PaymentCreate  # noqa: E402
-from app.modules.payments.service import PaymentService  # noqa: E402
-from app.modules.recurring.models import RecurringFrequency  # noqa: E402
-from app.modules.recurring.schemas import RecurringCreate  # noqa: E402
-from app.modules.recurring.service import RecurringService  # noqa: E402
+from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.modules.accounts.models import AccountType
+from app.modules.accounts.schemas import AccountCreate
+from app.modules.accounts.service import AccountService
+from app.modules.allocation.service import AllocationService
+from app.modules.auth.demo import DEMO_USER_ID, get_demo_user
+from app.modules.auth.models import UserRole
+from app.modules.auth.schemas import UserCreate
+from app.modules.auth.service import AuthService
+from app.modules.forecast.models import CashFlowPlanType
+from app.modules.forecast.schemas import CashFlowPlanCreate
+from app.modules.forecast.service import ForecastService
+from app.modules.payments.models import PaymentPriority, PaymentStatus
+from app.modules.payments.schemas import ManualExecution, PaymentCreate
+from app.modules.payments.service import PaymentService
+from app.modules.recurring.models import RecurringFrequency
+from app.modules.recurring.schemas import RecurringCreate
+from app.modules.recurring.service import RecurringService
+from app.modules.statements.models import StatementImportStatus
+from app.modules.statements.service import StatementService
 
 DEMO_USERNAME = "demoowner"
 DEMO_EMAIL = "demoowner@finflow.dev"
@@ -55,31 +62,24 @@ async def _delete_user_data(session, user_id) -> None:
     (money records are never silently dropped), so the reset must remove
     dependent rows explicitly.
     """
-    from sqlalchemy import delete, select
-
     from app.modules.accounts.models import Account, AccountBalanceSnapshot
     from app.modules.allocation.models import FundAllocation
     from app.modules.forecast.models import CashFlowPlan
     from app.modules.payments.models import PaymentPlan
     from app.modules.recurring.models import RecurringPayment
     from app.modules.statements.models import StatementImport, Transaction
+    from sqlalchemy import delete, select
 
-    account_ids = list(
-        await session.scalars(select(Account.id).where(Account.user_id == user_id))
-    )
+    account_ids = list(await session.scalars(select(Account.id).where(Account.user_id == user_id)))
 
     if account_ids:
         await session.execute(
             delete(FundAllocation).where(FundAllocation.account_id.in_(account_ids))
         )
         await session.execute(
-            delete(AccountBalanceSnapshot).where(
-                AccountBalanceSnapshot.account_id.in_(account_ids)
-            )
+            delete(AccountBalanceSnapshot).where(AccountBalanceSnapshot.account_id.in_(account_ids))
         )
-        await session.execute(
-            delete(Transaction).where(Transaction.account_id.in_(account_ids))
-        )
+        await session.execute(delete(Transaction).where(Transaction.account_id.in_(account_ids)))
         await session.execute(
             delete(StatementImport).where(StatementImport.account_id.in_(account_ids))
         )
@@ -102,23 +102,33 @@ async def main(reset: bool) -> None:
         recurring_svc = RecurringService(session)
         allocation_svc = AllocationService(session)
 
-        user = await auth.repository.get_by_username(DEMO_USERNAME)
+        user = (
+            await auth.repository.get_by_id(DEMO_USER_ID)
+            if settings.demo_mode
+            else await auth.repository.get_by_username(DEMO_USERNAME)
+        )
         if user is not None:
-            if not reset:
+            demo_empty = settings.demo_mode and not await accounts_svc.list_accounts(user.id)
+            if not reset and not demo_empty:
                 print(
-                    f"User '{DEMO_USERNAME}' already exists — use --reset to rebuild demo data."
+                    f"User '{user.username}' already has data — use --reset to rebuild demo data."
                 )
                 return
-            print(f"Removing existing demo user {DEMO_USERNAME} and dependent data...")
-            await _delete_user_data(session, user.id)
-            user = None
+            if reset:
+                print(f"Removing existing demo user {user.username} and dependent data...")
+                await _delete_user_data(session, user.id)
+                user = None
 
         if user is None:
-            user = await auth.register(
-                UserCreate(
-                    username=DEMO_USERNAME,
-                    email=DEMO_EMAIL,
-                    password=DEMO_PASSWORD,
+            user = (
+                await get_demo_user(session)
+                if settings.demo_mode
+                else await auth.register(
+                    UserCreate(
+                        username=DEMO_USERNAME,
+                        email=DEMO_EMAIL,
+                        password=DEMO_PASSWORD,
+                    )
                 )
             )
 
@@ -131,7 +141,9 @@ async def main(reset: bool) -> None:
             await session.commit()
             print(f"Promoted demo user to OWNER: {DEMO_USERNAME}")
 
-        if user.id is not None:
+        if settings.demo_mode:
+            print("Demo mode: open the frontend directly; no login is required.")
+        elif user.id is not None:
             print(f"Created demo OWNER: {DEMO_USERNAME} / {DEMO_PASSWORD}")
 
         # --- Banks / categories --------------------------------------------
@@ -150,7 +162,13 @@ async def main(reset: bool) -> None:
         print(f"Using {len(banks)} seeded banks")
 
         # --- Accounts ------------------------------------------------------
-        def mk(bank_code: str, name: str, balance: str, minimum: str, atype=AccountType.CHECKING) -> AccountCreate:
+        def mk(
+            bank_code: str,
+            name: str,
+            balance: str,
+            minimum: str,
+            atype=AccountType.CHECKING,
+        ) -> AccountCreate:
             return AccountCreate(
                 bank_id=bank_by_code[bank_code].id,
                 name=name,
@@ -203,7 +221,13 @@ async def main(reset: bool) -> None:
         print(f"  recurring bills: {len(recurring)}")
 
         # --- Payments across the state machine -----------------------------
-        def pay(name: str, amount: str, days: int, priority=PaymentPriority.NORMAL, preferred=None):
+        def pay(
+            name: str,
+            amount: str,
+            days: int,
+            priority=PaymentPriority.NORMAL,
+            preferred=None,
+        ):
             return PaymentCreate(
                 name=name,
                 amount=Decimal(amount),
@@ -219,7 +243,14 @@ async def main(reset: bool) -> None:
 
         # PLANNED
         p_planned = await payments_svc.create_payment(
-            user.id, pay("9月车险", "5800.00", 10, PaymentPriority.HIGH, acc_by_key["工资卡（招行）"].id)
+            user.id,
+            pay(
+                "车险续费",
+                "5800.00",
+                10,
+                PaymentPriority.HIGH,
+                acc_by_key["工资卡（招行）"].id,
+            ),
         )
         await payments_svc.transition(user.id, p_planned.id, PaymentStatus.PLANNED)
         print(f"  payment PLANNED: {p_planned.name}")
@@ -232,7 +263,8 @@ async def main(reset: bool) -> None:
 
         # RESERVED (preview + confirm = virtual reservation)
         p_reserved = await payments_svc.create_payment(
-            user.id, pay("季度物业费", "2400.00", 15, preferred=acc_by_key["备用储蓄（工行）"].id)
+            user.id,
+            pay("季度物业费", "2400.00", 15, preferred=acc_by_key["备用储蓄（工行）"].id),
         )
         await payments_svc.transition(user.id, p_reserved.id, PaymentStatus.PLANNED)
         await allocation_svc.generate_preview(user.id, p_reserved.id)
@@ -241,7 +273,8 @@ async def main(reset: bool) -> None:
 
         # WAITING_MANUAL_EXECUTION
         p_waiting = await payments_svc.create_payment(
-            user.id, pay("牙科检查", "1200.00", 3, preferred=acc_by_key["日常消费（建行）"].id)
+            user.id,
+            pay("牙科检查", "1200.00", 3, preferred=acc_by_key["日常消费（建行）"].id),
         )
         await payments_svc.transition(user.id, p_waiting.id, PaymentStatus.PLANNED)
         await allocation_svc.generate_preview(user.id, p_waiting.id)
@@ -251,7 +284,8 @@ async def main(reset: bool) -> None:
 
         # MANUALLY_EXECUTED
         p_done = await payments_svc.create_payment(
-            user.id, pay("8月宽带续费", "600.00", -5, preferred=acc_by_key["日常消费（建行）"].id)
+            user.id,
+            pay("宽带续费", "600.00", -5, preferred=acc_by_key["日常消费（建行）"].id),
         )
         await payments_svc.transition(user.id, p_done.id, PaymentStatus.PLANNED)
         await allocation_svc.generate_preview(user.id, p_done.id)
@@ -269,10 +303,57 @@ async def main(reset: bool) -> None:
         )
         print(f"  payment MANUALLY_EXECUTED: {p_done.name}")
 
+        # Multi-currency forecasts and transaction history for the showcase.
+        usd_account = await accounts_svc.create_account(
+            user.id,
+            AccountCreate(
+                bank_id=bank_by_code["BOC"].id,
+                name="模拟美元储蓄",
+                currency="USD",
+                actual_balance=Decimal("1200.00"),
+                minimum_balance=Decimal("200.00"),
+                include_in_allocation=True,
+            ),
+        )
+        forecast_svc = ForecastService(session)
+        for name, amount, currency, account_id, days in [
+            ("模拟下期工资", "20000.00", "CNY", accounts[0].id, 7),
+            ("模拟美元收入", "200.00", "USD", usd_account.id, 14),
+            ("模拟待归属收入", "800.00", "CNY", None, 10),
+        ]:
+            await forecast_svc.create_plan(
+                user.id,
+                CashFlowPlanCreate(
+                    type=CashFlowPlanType.INCOME,
+                    name=name,
+                    amount=Decimal(amount),
+                    currency=currency,
+                    account_id=account_id,
+                    date=TODAY + timedelta(days=days),
+                ),
+            )
+        csv = (
+            "交易日期,摘要,对方户名,交易流水号,收入金额,支出金额,余额\n"
+            f"{TODAY - timedelta(days=2)},模拟工资入账,模拟科技公司,"
+            "DEMO-SALARY,20000.00,,128530.42\n"
+            f"{TODAY - timedelta(days=1)},模拟日常消费,模拟超市,DEMO-SHOP,,120.50,128409.92\n"
+        )
+        statements_svc = StatementService(session)
+        imported = await statements_svc.upload(
+            user.id, accounts[0].id, "demo-history.csv", csv.encode("utf-8-sig")
+        )
+        processed = await statements_svc.process_import(imported.import_id)
+        if processed.status != StatementImportStatus.SUCCESS:
+            raise RuntimeError("Demo statement parsing failed; inspect the import errors.")
+        print("  cash flow plans: 3; demo statement transactions: 2; currencies: CNY/USD")
+
         print()
-        print("Demo data ready. Login:")
-        print(f"  username : {DEMO_USERNAME}")
-        print(f"  password : {DEMO_PASSWORD}")
+        if settings.demo_mode:
+            print("Demo data ready. Open the frontend directly without logging in.")
+        else:
+            print("Demo data ready. Login:")
+            print(f"  username : {DEMO_USERNAME}")
+            print(f"  password : {DEMO_PASSWORD}")
 
 
 if __name__ == "__main__":

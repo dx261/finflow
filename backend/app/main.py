@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, engine
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import TraceIDMiddleware
@@ -29,6 +29,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "finflow_started",
         extra={"app": settings.app_name, "env": settings.app_env},
     )
+    if settings.local_demo:
+        # Only for the SQLite showcase. PostgreSQL keeps using Alembic migrations.
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        if settings.demo_mode:
+            from app.modules.auth.demo import get_demo_user
+
+            async with AsyncSessionLocal() as session:
+                await get_demo_user(session)
     # Seed default catalogs. Best-effort: a missing database must never
     # prevent the API from booting.
     try:

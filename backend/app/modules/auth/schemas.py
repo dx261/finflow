@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_]+$")
     email: EmailStr
     password: str = Field(min_length=_PASSWORD_MIN, max_length=_PASSWORD_MAX)
+    registration_token: str | None = Field(default=None, max_length=256)
 
 
 class LoginRequest(BaseModel):

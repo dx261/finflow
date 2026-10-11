@@ -28,6 +28,10 @@ class StatementStorage:
         (self.base_dir / stored).write_bytes(content)
         return stored, digest, extension
 
+    @staticmethod
+    def hash_content(content: bytes) -> str:
+        return hashlib.sha256(content).hexdigest()
+
     def path_for(self, stored_filename: str) -> Path:
         """Resolve a stored filename to an absolute path (traversal-safe)."""
         if Path(stored_filename).name != stored_filename:
@@ -37,3 +41,7 @@ class StatementStorage:
     def read(self, stored_filename: str) -> bytes:
         """Read a stored file's bytes."""
         return self.path_for(stored_filename).read_bytes()
+
+    def delete(self, stored_filename: str) -> None:
+        """Best-effort cleanup for a staged file whose database write failed."""
+        self.path_for(stored_filename).unlink(missing_ok=True)

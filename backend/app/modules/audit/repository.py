@@ -40,13 +40,16 @@ class AuditLogRepository:
     async def list(
         self,
         *,
+        user_id: uuid.UUID,
         resource_type: str | None,
         resource_id: str | None,
         action: str | None,
         limit: int,
         offset: int,
     ) -> list[AuditLog]:
-        stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
+        stmt = (
+            select(AuditLog).where(AuditLog.user_id == user_id).order_by(AuditLog.created_at.desc())
+        )
         if resource_type is not None:
             stmt = stmt.where(AuditLog.resource_type == resource_type)
         if resource_id is not None:

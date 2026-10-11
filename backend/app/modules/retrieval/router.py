@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.deps import CurrentUser
+from app.modules.auth.deps import DataOwnerId
 from app.modules.retrieval.service import RetrievalService, TransactionSearch
 from app.modules.statements.models import TransactionDirection
 
@@ -36,7 +36,7 @@ class TransactionRead(BaseModel):
 
 @router.get("", response_model=list[TransactionRead])
 async def list_transactions(
-    current_user: CurrentUser,
+    data_owner_id: DataOwnerId,
     session: DbSession,
     account_id: uuid.UUID | None = None,
     date_from: date | None = None,
@@ -59,5 +59,15 @@ async def list_transactions(
         keyword=keyword,
         direction=direction,
     )
-    transactions = await RetrievalService(session).list_transactions(current_user.id, search, limit)
+    transactions = await RetrievalService(session).list_transactions(data_owner_id, search, limit)
     return [TransactionRead.model_validate(t) for t in transactions]
+
+
+@router.get("/{transaction_id}", response_model=TransactionRead)
+async def get_transaction(
+    transaction_id: uuid.UUID,
+    data_owner_id: DataOwnerId,
+    session: DbSession,
+) -> TransactionRead:
+    transaction = await RetrievalService(session).get_transaction(data_owner_id, transaction_id)
+    return TransactionRead.model_validate(transaction)

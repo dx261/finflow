@@ -35,17 +35,46 @@ class RelationService:
         )
         txns_by_id = {txn.id: txn for txn in txns}
         candidates = detect_refund_relations([_to_detector_txn(t) for t in txns])
+        existing = {
+            (source_id, target_id, relation_type)
+            for source_id, target_id, relation_type in (
+                await self.session.execute(
+                    select(
+                        TransactionRelation.source_transaction_id,
+                        TransactionRelation.target_transaction_id,
+                        TransactionRelation.relation_type,
+                    ).where(
+                        TransactionRelation.source_transaction_id.in_(txns_by_id),
+                        TransactionRelation.target_transaction_id.in_(txns_by_id),
+                    )
+                )
+            ).all()
+        }
+        already_related_sources = {
+            source_id
+            for source_id, _, relation_type in existing
+            if relation_type in (RelationType.REFUND, RelationType.REVERSAL)
+        }
 
         relations: list[TransactionRelation] = []
         for candidate in candidates:
+            key = (
+                uuid.UUID(candidate.source_transaction_id),
+                uuid.UUID(candidate.target_transaction_id),
+                RelationType(candidate.relation_type),
+            )
+            if key in existing or key[0] in already_related_sources:
+                continue
             relation = TransactionRelation(
-                source_transaction_id=uuid.UUID(candidate.source_transaction_id),
-                target_transaction_id=uuid.UUID(candidate.target_transaction_id),
-                relation_type=RelationType(candidate.relation_type),
+                source_transaction_id=key[0],
+                target_transaction_id=key[1],
+                relation_type=key[2],
                 confidence=candidate.confidence,
             )
             self.session.add(relation)
             relations.append(relation)
+            existing.add(key)
+            already_related_sources.add(key[0])
 
             refund_txn = txns_by_id[uuid.UUID(candidate.target_transaction_id)]
             refund_txn.transaction_type = (
@@ -55,5 +84,5 @@ class RelationService:
             )
 
         if relations:
-            await self.session.commit()
+            await self.session.flush()
         return relations

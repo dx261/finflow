@@ -1,0 +1,10 @@
+{
+  "bank_id": "REPLACE_WITH_BANK_ID",
+  "name": "模拟人民币主账户",
+  "masked_account_no": "****2026",
+  "account_type": "CHECKING",
+  "currency": "CNY",
+  "actual_balance": "0.00",
+  "minimum_balance": "10000.00",
+  "include_in_allocation": true
+}

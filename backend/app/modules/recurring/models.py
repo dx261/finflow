@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,17 @@ class RecurringPayment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """Template for payments that repeat on a schedule."""
 
     __tablename__ = "recurring_payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_recurring_payments_amount_positive"),
+        CheckConstraint(
+            "day_of_month >= 1 AND day_of_month <= 31",
+            name="ck_recurring_payments_day_of_month",
+        ),
+        CheckConstraint(
+            "end_date IS NULL OR end_date >= start_date",
+            name="ck_recurring_payments_date_range",
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False

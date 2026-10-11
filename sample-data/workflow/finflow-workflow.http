@@ -1,0 +1,165 @@
+@baseUrl = http://localhost:8000/api/v1
+
+### 1. 登录（默认使用 demo 数据；空库可先发送 01-register-owner.json 到 /auth/register）
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "login": "demoowner",
+  "password": "demo123456"
+}
+
+### 2. 获取银行目录
+# @name banks
+GET {{baseUrl}}/banks
+Authorization: Bearer {{login.response.body.$.access_token}}
+
+### 3. 创建人民币账户
+# @name cnyAccount
+POST {{baseUrl}}/accounts
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "bank_id": "{{banks.response.body.$[0].id}}",
+  "name": "模拟人民币主账户",
+  "masked_account_no": "****2026",
+  "account_type": "CHECKING",
+  "currency": "CNY",
+  "actual_balance": "0.00",
+  "minimum_balance": "10000.00",
+  "include_in_allocation": true
+}
+
+### 4. 创建美元账户，验证分币种汇总
+POST {{baseUrl}}/accounts
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "bank_id": "{{banks.response.body.$[0].id}}",
+  "name": "模拟美元账户",
+  "account_type": "SAVINGS",
+  "currency": "USD",
+  "actual_balance": "1200.00",
+  "minimum_balance": "200.00"
+}
+
+### 5. 导入付款前账单；异步模式下请等待导入记录变为 SUCCESS
+POST {{baseUrl}}/statements/upload
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: multipart/form-data; boundary=FinFlowBoundary
+
+--FinFlowBoundary
+Content-Disposition: form-data; name="account_id"
+
+{{cnyAccount.response.body.$.id}}
+--FinFlowBoundary
+Content-Disposition: form-data; name="file"; filename="07-opening-statement.csv"
+Content-Type: text/csv
+
+< ./07-opening-statement.csv
+--FinFlowBoundary--
+
+### 6. 创建未来工资
+POST {{baseUrl}}/cashflow-plans
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "type": "INCOME",
+  "name": "十月工资",
+  "amount": "18000.00",
+  "currency": "CNY",
+  "date": "2026-10-31",
+  "account_id": "{{cnyAccount.response.body.$.id}}"
+}
+
+### 6.1 创建每月房租规则
+POST {{baseUrl}}/recurring
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "name": "每月房租",
+  "amount": "8000.00",
+  "currency": "CNY",
+  "frequency": "MONTHLY",
+  "day_of_month": 15,
+  "start_date": "2026-11-15",
+  "preferred_account_id": "{{cnyAccount.response.body.$.id}}",
+  "priority": "HIGH"
+}
+
+### 7. 创建房租付款
+# @name payment
+POST {{baseUrl}}/payments
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "name": "十月房租",
+  "payee_name": "模拟房东",
+  "amount": "8000.00",
+  "currency": "CNY",
+  "planned_date": "2026-10-15",
+  "priority": "HIGH",
+  "preferred_account_id": "{{cnyAccount.response.body.$.id}}"
+}
+
+### 8. 草稿转计划
+POST {{baseUrl}}/payments/{{payment.response.body.$.id}}/transition
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{ "target_status": "PLANNED" }
+
+### 9. 生成分配建议
+POST {{baseUrl}}/payments/{{payment.response.body.$.id}}/allocations/preview
+Authorization: Bearer {{login.response.body.$.access_token}}
+
+### 10. 确认虚拟预留
+POST {{baseUrl}}/payments/{{payment.response.body.$.id}}/allocations/confirm
+Authorization: Bearer {{login.response.body.$.access_token}}
+
+### 11. 标记用户已在银行人工付款
+POST {{baseUrl}}/payments/{{payment.response.body.$.id}}/manual-execution
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: application/json
+
+{
+  "executed_at": "2026-10-15T09:30:00+08:00",
+  "account_id": "{{cnyAccount.response.body.$.id}}",
+  "bank_reference": "RENT-202610",
+  "note": "模拟人工付款"
+}
+
+### 12. 上传包含实际扣款的账单，并等待导入成功
+POST {{baseUrl}}/statements/upload
+Authorization: Bearer {{login.response.body.$.access_token}}
+Content-Type: multipart/form-data; boundary=FinFlowBoundary
+
+--FinFlowBoundary
+Content-Disposition: form-data; name="account_id"
+
+{{cnyAccount.response.body.$.id}}
+--FinFlowBoundary
+Content-Disposition: form-data; name="file"; filename="08-payment-statement.csv"
+Content-Type: text/csv
+
+< ./08-payment-statement.csv
+--FinFlowBoundary--
+
+### 13. 发起对账
+# @name reconciliation
+POST {{baseUrl}}/payments/{{payment.response.body.$.id}}/reconcile
+Authorization: Bearer {{login.response.body.$.access_token}}
+
+### 14. 确认匹配并结算
+POST {{baseUrl}}/reconciliations/{{reconciliation.response.body.$.id}}/confirm
+Authorization: Bearer {{login.response.body.$.access_token}}
+
+### 15. 查看分币种预测和待归属项目
+GET {{baseUrl}}/forecast?days=30
+Authorization: Bearer {{login.response.body.$.access_token}}

@@ -39,6 +39,15 @@ class RetrievalService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get_transaction(self, user_id: uuid.UUID, transaction_id: uuid.UUID) -> Transaction:
+        transaction = await self.session.get(Transaction, transaction_id)
+        if transaction is None:
+            raise NotFoundError("Transaction not found.")
+        account = await self.session.get(Account, transaction.account_id)
+        if account is None or account.user_id != user_id:
+            raise NotFoundError("Transaction not found.")
+        return transaction
+
     async def list_transactions(
         self, user_id: uuid.UUID, search: TransactionSearch, limit: int = 50
     ) -> list[Transaction]:

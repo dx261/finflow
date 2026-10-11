@@ -10,9 +10,11 @@ import uuid
 from datetime import date, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.modules.accounts.models import Account
 from app.modules.payments.models import PaymentPlan, PaymentStatus
 from app.modules.payments.repository import PaymentRepository
 from app.modules.recurring.models import RecurringFrequency, RecurringPayment
@@ -79,7 +81,9 @@ class RecurringService:
 
     async def create(self, user_id: uuid.UUID, payload: RecurringCreate) -> RecurringPayment:
         if payload.preferred_account_id is not None:
-            await self._owned_account(user_id, payload.preferred_account_id)
+            account = await self._owned_account(user_id, payload.preferred_account_id)
+            if account.currency != payload.currency:
+                raise ConflictError("Recurring payment currency must match the selected account.")
         recurring = RecurringPayment(
             user_id=user_id,
             name=payload.name,
@@ -111,7 +115,18 @@ class RecurringService:
         recurring = await self._get_owned(user_id, recurring_id)
         data = payload.model_dump(exclude_unset=True)
         if "preferred_account_id" in data and data["preferred_account_id"] is not None:
-            await self._owned_account(user_id, data["preferred_account_id"])
+            account = await self._owned_account(user_id, data["preferred_account_id"])
+            target_currency = data.get("currency", recurring.currency)
+            if account.currency != target_currency:
+                raise ConflictError("Recurring payment currency must match the selected account.")
+        elif recurring.preferred_account_id is not None and data.get("currency") is not None:
+            account = await self._owned_account(user_id, recurring.preferred_account_id)
+            if account.currency != data["currency"]:
+                raise ConflictError("Recurring payment currency must match the selected account.")
+        start_date = data.get("start_date", recurring.start_date)
+        end_date = data.get("end_date", recurring.end_date)
+        if end_date is not None and end_date < start_date:
+            raise BadRequestError("end_date must not be before start_date.")
         for field, value in data.items():
             setattr(recurring, field, value)
         await self.session.commit()
@@ -154,16 +169,22 @@ class RecurringService:
                     source_recurring_id=recurring.id,
                     occurrence_date=due_date,
                 )
-                self.session.add(plan)
+                try:
+                    async with self.session.begin_nested():
+                        self.session.add(plan)
+                        await self.session.flush()
+                except IntegrityError:
+                    # Another beat/HTTP worker generated this occurrence
+                    # concurrently.  The database unique key is authoritative.
+                    continue
                 existing.add(due_date)
                 created += 1
         if created:
             await self.session.commit()
         return created
 
-    async def _owned_account(self, user_id: uuid.UUID, account_id: uuid.UUID) -> None:
-        from app.modules.accounts.models import Account
-
+    async def _owned_account(self, user_id: uuid.UUID, account_id: uuid.UUID) -> Account:
         account = await self.session.get(Account, account_id)
         if account is None or account.user_id != user_id:
             raise NotFoundError("Account not found.")
+        return account

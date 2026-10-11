@@ -91,31 +91,21 @@ async def test_transition_endpoint_rejects_illegal(client, seeded_banks, auth_he
     assert response.json()["code"] == "INVALID_STATE_TRANSITION"
 
 
-async def test_full_path_through_api(client, seeded_banks, auth_headers) -> None:
+async def test_side_effect_transitions_require_domain_endpoints(
+    client, seeded_banks, auth_headers
+) -> None:
     payment_id = await _create_payment(client, auth_headers)
-
-    path = [
-        "PLANNED",
-        "ALLOCATED",
-        "RESERVED",
-        "WAITING_MANUAL_EXECUTION",
-        "MANUALLY_EXECUTED",
-        "RECONCILING",
-        "SETTLED",
-    ]
-    for target in path:
-        response = await client.post(
-            f"/api/v1/payments/{payment_id}/transition",
-            headers=auth_headers,
-            json={"target_status": target},
-        )
-        assert response.status_code == 200, f"failed at {target}: {response.text}"
-        assert response.json()["status"] == target
-
-    # Once settled, no further transitions allowed.
-    response = await client.post(
+    planned = await client.post(
         f"/api/v1/payments/{payment_id}/transition",
         headers=auth_headers,
-        json={"target_status": "DRAFT"},
+        json={"target_status": "PLANNED"},
     )
-    assert response.status_code == 409
+    assert planned.status_code == 200
+
+    allocated = await client.post(
+        f"/api/v1/payments/{payment_id}/transition",
+        headers=auth_headers,
+        json={"target_status": "ALLOCATED"},
+    )
+    assert allocated.status_code == 409
+    assert allocated.json()["code"] == "CONFLICT"

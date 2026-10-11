@@ -93,6 +93,15 @@ async def test_golden_path_auto_match_and_settle(client, seeded_banks, auth_head
     assert body["status"] == "AUTO_MATCHED"
     assert body["total_score"] >= 0.80
 
+    pending = await client.get("/api/v1/reconciliations/pending", headers=auth_headers)
+    assert [item["id"] for item in pending.json()] == [body["id"]]
+
+    transaction = await client.get(
+        f"/api/v1/transactions/{body['transaction_id']}", headers=auth_headers
+    )
+    assert transaction.status_code == 200
+    assert transaction.json()["amount"] == "8000.00"
+
     confirmed = await client.post(
         f"/api/v1/reconciliations/{body['id']}/confirm", headers=auth_headers
     )
@@ -112,8 +121,13 @@ async def test_golden_path_auto_match_and_settle(client, seeded_banks, auth_head
 async def test_low_score_goes_to_review(client, seeded_banks, auth_headers) -> None:
     account_id = await _create_account(client, auth_headers)
     payment_id = await _reserved_executed_payment(client, auth_headers, account_id)
-    # A transaction with a different amount -> low score -> review required.
-    await _insert_txn(account_id, Decimal("123.00"), counterparty="完全不同商户")
+    # Exact amount but weaker date/counterparty signals -> manual review.
+    await _insert_txn(
+        account_id,
+        Decimal("8000.00"),
+        txn_date=date(2026, 9, 10),
+        counterparty="完全不同商户",
+    )
 
     recon = await client.post(f"/api/v1/payments/{payment_id}/reconcile", headers=auth_headers)
     assert recon.status_code == 200, recon.text
@@ -126,7 +140,12 @@ async def test_low_score_goes_to_review(client, seeded_banks, auth_headers) -> N
 async def test_reject_does_not_settle(client, seeded_banks, auth_headers) -> None:
     account_id = await _create_account(client, auth_headers)
     payment_id = await _reserved_executed_payment(client, auth_headers, account_id)
-    await _insert_txn(account_id, Decimal("123.00"))
+    await _insert_txn(
+        account_id,
+        Decimal("8000.00"),
+        txn_date=date(2026, 9, 10),
+        counterparty="完全不同商户",
+    )
     recon = await client.post(f"/api/v1/payments/{payment_id}/reconcile", headers=auth_headers)
     recon_id = recon.json()["id"]
 
@@ -170,7 +189,12 @@ async def test_select_transaction_rebinds_match(client, seeded_banks, auth_heade
     account_id = await _create_account(client, auth_headers)
     payment_id = await _reserved_executed_payment(client, auth_headers, account_id)
     # Only the wrong transaction exists at reconcile time.
-    await _insert_txn(account_id, Decimal("123.00"))
+    await _insert_txn(
+        account_id,
+        Decimal("8000.00"),
+        txn_date=date(2026, 9, 10),
+        counterparty="完全不同商户",
+    )
 
     recon = await client.post(f"/api/v1/payments/{payment_id}/reconcile", headers=auth_headers)
     assert recon.json()["status"] == "REVIEW_REQUIRED"
@@ -185,3 +209,26 @@ async def test_select_transaction_rebinds_match(client, seeded_banks, auth_heade
     assert rebound.status_code == 200, rebound.text
     assert rebound.json()["transaction_id"] == right_txn
     assert rebound.json()["status"] == "AUTO_MATCHED"
+
+
+async def test_confirm_marks_transaction_matched_and_prevents_reuse(
+    client, seeded_banks, auth_headers
+) -> None:
+    account_id = await _create_account(client, auth_headers)
+    first_payment = await _reserved_executed_payment(client, auth_headers, account_id)
+    transaction_id = await _insert_txn(account_id, Decimal("8000.00"))
+
+    recon = await client.post(f"/api/v1/payments/{first_payment}/reconcile", headers=auth_headers)
+    confirmed = await client.post(
+        f"/api/v1/reconciliations/{recon.json()['id']}/confirm", headers=auth_headers
+    )
+    assert confirmed.status_code == 200
+
+    async with AsyncSessionLocal() as session:
+        transaction = await session.get(Transaction, uuid.UUID(transaction_id))
+        assert transaction is not None
+        assert transaction.reconciliation_status == "MATCHED"
+
+    second_payment = await _reserved_executed_payment(client, auth_headers, account_id)
+    second = await client.post(f"/api/v1/payments/{second_payment}/reconcile", headers=auth_headers)
+    assert second.status_code == 409

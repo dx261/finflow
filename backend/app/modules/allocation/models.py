@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,9 @@ class AllocationStatus(StrEnum):
 
 class FundAllocation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "fund_allocations"
+    __table_args__ = (
+        CheckConstraint("allocated_amount > 0", name="ck_fund_allocations_amount_positive"),
+    )
 
     payment_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("payment_plans.id", ondelete="CASCADE"), index=True, nullable=False

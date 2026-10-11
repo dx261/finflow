@@ -5,7 +5,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +45,14 @@ class PaymentPlan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A planned future payment the user intends to make manually."""
 
     __tablename__ = "payment_plans"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_plans_amount_positive"),
+        UniqueConstraint(
+            "source_recurring_id",
+            "occurrence_date",
+            name="uq_payment_plans_recurring_occurrence",
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False

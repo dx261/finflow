@@ -100,6 +100,36 @@ async def test_viewer_cannot_create_account(client: httpx.AsyncClient, db_reset)
     assert response.json()["code"] == "FORBIDDEN"
 
 
+async def test_viewer_reads_the_owner_workspace(client: httpx.AsyncClient, seeded_banks) -> None:
+    await client.post(
+        "/api/v1/auth/register",
+        json={"username": "owner", "email": "o@test.dev", "password": "password123"},
+    )
+    owner_login = await client.post(
+        "/api/v1/auth/login", json={"login": "owner", "password": "password123"}
+    )
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+    bank_id = await _first_bank_id(client, owner_headers)
+    await client.post(
+        "/api/v1/accounts",
+        headers=owner_headers,
+        json={"bank_id": bank_id, "name": "Shared account", "actual_balance": "100"},
+    )
+
+    await client.post(
+        "/api/v1/auth/register",
+        json={"username": "viewer", "email": "v@test.dev", "password": "password123"},
+    )
+    viewer_login = await client.post(
+        "/api/v1/auth/login", json={"login": "viewer", "password": "password123"}
+    )
+    viewer_headers = {"Authorization": f"Bearer {viewer_login.json()['access_token']}"}
+
+    response = await client.get("/api/v1/accounts", headers=viewer_headers)
+    assert response.status_code == 200
+    assert [account["name"] for account in response.json()] == ["Shared account"]
+
+
 async def test_delete_account(client: httpx.AsyncClient, seeded_banks, auth_headers) -> None:
     bank_id = await _first_bank_id(client, auth_headers)
     created = (

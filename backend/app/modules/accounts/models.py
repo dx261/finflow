@@ -12,7 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +36,9 @@ class AccountStatus(StrEnum):
 
 class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "accounts"
+    __table_args__ = (
+        CheckConstraint("minimum_balance >= 0", name="ck_accounts_minimum_balance_nonnegative"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False

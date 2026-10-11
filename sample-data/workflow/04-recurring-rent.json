@@ -1,0 +1,11 @@
+{
+  "name": "每月房租",
+  "amount": "8000.00",
+  "currency": "CNY",
+  "frequency": "MONTHLY",
+  "day_of_month": 15,
+  "start_date": "2026-11-15",
+  "end_date": null,
+  "preferred_account_id": "REPLACE_WITH_CNY_ACCOUNT_ID",
+  "priority": "HIGH"
+}

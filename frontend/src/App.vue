@@ -1,8 +1,28 @@
 <script setup lang="ts">
-// Root component. The router decides between the standalone login page and
-// the AppLayout shell (routes defined in src/router/index.ts).
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+function retry(): void {
+  window.location.reload()
+}
 </script>
 
 <template>
-  <router-view />
+  <div v-if="auth.startupError" class="startup-error">
+    <el-alert title="无法连接系统，请确认后端和数据库已启动" type="error" :closable="false">
+      {{ auth.startupError }}
+    </el-alert>
+    <el-button type="primary" @click="retry">重新连接</el-button>
+  </div>
+  <router-view v-else />
 </template>
+
+<style scoped>
+.startup-error {
+  max-width: 600px;
+  margin: 15vh auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+</style>

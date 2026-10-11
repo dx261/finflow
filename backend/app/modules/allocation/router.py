@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.allocation.schemas import AllocationItem, AllocationRead
 from app.modules.allocation.service import AllocationService
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -18,9 +18,9 @@ router = APIRouter(prefix="/payments/{payment_id}/allocations", tags=["allocatio
 
 @router.get("", response_model=list[AllocationRead])
 async def list_allocations(
-    payment_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+    payment_id: uuid.UUID, data_owner_id: DataOwnerId, session: DbSession
 ) -> list[AllocationRead]:
-    allocations = await AllocationService(session).list_for_payment(current_user.id, payment_id)
+    allocations = await AllocationService(session).list_for_payment(data_owner_id, payment_id)
     return [AllocationRead.model_validate(a) for a in allocations]
 
 

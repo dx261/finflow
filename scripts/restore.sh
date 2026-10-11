@@ -38,8 +38,36 @@ if [ "${CONFIRM:-n}" != "y" ] && [ "${CONFIRM:-n}" != "Y" ]; then
 fi
 
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+RUNNING_WRITERS=()
+cleanup() {
+  rm -rf "$WORK_DIR"
+  if [ ${#RUNNING_WRITERS[@]} -gt 0 ]; then
+    docker compose -f "$COMPOSE_FILE" start "${RUNNING_WRITERS[@]}" >/dev/null
+  fi
+}
+trap cleanup EXIT
+if tar tzf "$ARCHIVE" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+  echo "Backup contains unsafe paths; restore aborted." >&2
+  exit 1
+fi
 tar xzf "$ARCHIVE" -C "$WORK_DIR"
+
+if [ ! -f "$WORK_DIR/manifest.sha256" ] || [ ! -f "$WORK_DIR/postgres.sql" ]; then
+  echo "Backup manifest or PostgreSQL dump is missing; restore aborted." >&2
+  exit 1
+fi
+(cd "$WORK_DIR" && sha256sum -c manifest.sha256)
+
+# Stop every writer before replacing the schema/files.  The EXIT trap starts
+# only services that were running before the restore, including on failure.
+for service in api worker beat; do
+  if docker compose -f "$COMPOSE_FILE" ps --status running --services | grep -qx "$service"; then
+    RUNNING_WRITERS+=("$service")
+  fi
+done
+if [ ${#RUNNING_WRITERS[@]} -gt 0 ]; then
+  docker compose -f "$COMPOSE_FILE" stop "${RUNNING_WRITERS[@]}"
+fi
 
 # --- 1. PostgreSQL -------------------------------------------------------
 if [ -f "$WORK_DIR/postgres.sql" ]; then
@@ -76,5 +104,4 @@ if [ -f "$WORK_DIR/redis.rdb" ]; then
   echo "    Redis snapshot present but intentionally not restored (ephemeral broker data)."
 fi
 
-echo "==> Restore complete. Restart the API so it re-reads the restored state:"
-echo "    docker compose -f $COMPOSE_FILE restart api worker"
+echo "==> Restore complete. Previously running writer services are being restarted."

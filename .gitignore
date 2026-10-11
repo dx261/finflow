@@ -17,6 +17,11 @@ frontend/.eslintcache
 backend/data/
 data/
 uploads/
+backups/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+backend/celerybeat-schedule*
 
 # --- dev-runner state (start-dev.sh / stop-dev.sh) ---
 .run/

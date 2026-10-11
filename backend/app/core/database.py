@@ -10,8 +10,11 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
-from sqlalchemy import DateTime, Uuid
+from sqlalchemy import DateTime, Uuid, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
@@ -20,7 +23,25 @@ from app.core.config import settings
 
 _poolclass = NullPool if settings.database_poolclass == "null" else None
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True, poolclass=_poolclass)
+if settings.local_demo:
+    Path(make_url(settings.database_url).database or "").parent.mkdir(parents=True, exist_ok=True)
+
+engine = create_async_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    poolclass=_poolclass,
+    connect_args={"timeout": 15} if settings.local_demo else {},
+)
+
+if settings.local_demo:
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def configure_sqlite(connection: Any, _record: Any) -> None:
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 

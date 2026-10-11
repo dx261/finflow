@@ -27,6 +27,7 @@ _CODE_FOR_STATUS: dict[int, str] = {
     404: "NOT_FOUND",
     405: "METHOD_NOT_ALLOWED",
     409: "CONFLICT",
+    413: "PAYLOAD_TOO_LARGE",
     422: "VALIDATION_ERROR",
     429: "TOO_MANY_REQUESTS",
     500: "INTERNAL_ERROR",
@@ -99,6 +100,11 @@ class PermissionDeniedError(FinFlowError):
 class BadRequestError(FinFlowError):
     status_code = 400
     code = "BAD_REQUEST"
+
+
+class PayloadTooLargeError(FinFlowError):
+    status_code = 413
+    code = "PAYLOAD_TOO_LARGE"
 
 
 def _trace_id_for(request: Request) -> str:

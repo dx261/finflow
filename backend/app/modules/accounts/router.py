@@ -15,7 +15,7 @@ from app.modules.accounts.schemas import (
     BalanceSnapshotRead,
 )
 from app.modules.accounts.service import AccountService
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -23,15 +23,15 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 
 @router.get("", response_model=list[AccountRead])
-async def list_accounts(current_user: CurrentUser, session: DbSession) -> list[AccountRead]:
-    return await AccountService(session).list_accounts(current_user.id)
+async def list_accounts(data_owner_id: DataOwnerId, session: DbSession) -> list[AccountRead]:
+    return await AccountService(session).list_accounts(data_owner_id)
 
 
 @router.get("/{account_id}", response_model=AccountRead)
 async def get_account(
-    account_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+    account_id: uuid.UUID, data_owner_id: DataOwnerId, session: DbSession
 ) -> AccountRead:
-    return await AccountService(session).get_account(account_id, current_user)
+    return await AccountService(session).get_account(account_id, data_owner_id)
 
 
 @router.post("", response_model=AccountRead, status_code=201)
@@ -55,9 +55,9 @@ async def delete_account(account_id: uuid.UUID, owner: OwnerUser, session: DbSes
 
 @router.get("/{account_id}/balances", response_model=list[BalanceSnapshotRead])
 async def list_balances(
-    account_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+    account_id: uuid.UUID, data_owner_id: DataOwnerId, session: DbSession
 ) -> list[BalanceSnapshotRead]:
-    return await AccountService(session).list_snapshots(account_id, current_user)
+    return await AccountService(session).list_snapshots(account_id, data_owner_id)
 
 
 @router.post("/{account_id}/balances", response_model=BalanceSnapshotRead, status_code=201)

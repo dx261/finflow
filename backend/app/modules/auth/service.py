@@ -1,9 +1,12 @@
 """Authentication business logic."""
 
+import secrets
 import uuid
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import (
     AuthenticationError,
     ConflictError,
@@ -16,6 +19,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.modules.auth.demo import DEMO_USER_ID
 from app.modules.auth.models import User, UserRole, UserStatus
 from app.modules.auth.repository import UserRepository
 from app.modules.auth.schemas import TokenPair, UserCreate
@@ -27,6 +31,19 @@ class AuthService:
         self.repository = UserRepository(session)
 
     async def register(self, payload: UserCreate) -> User:
+        if settings.registration_token and not secrets.compare_digest(
+            payload.registration_token or "", settings.registration_token
+        ):
+            raise AuthenticationError(
+                "Invalid registration token.", code="INVALID_REGISTRATION_TOKEN"
+            )
+
+        # Serialize bootstrap registration on PostgreSQL.  Without this,
+        # two simultaneous first requests can both observe count == 0 and
+        # both become OWNER.
+        if self.session.get_bind().dialect.name == "postgresql":
+            await self.session.execute(text("SELECT pg_advisory_xact_lock(1179460687)"))
+
         if await self.repository.get_by_username(payload.username) is not None:
             raise ConflictError("Username already exists.")
         if await self.repository.get_by_email(payload.email) is not None:
@@ -46,7 +63,11 @@ class AuthService:
 
     async def authenticate(self, login: str, password: str) -> User:
         user = await self.repository.get_by_login(login)
-        if user is None or not verify_password(password, user.password_hash):
+        if (
+            user is None
+            or user.id == DEMO_USER_ID
+            or not verify_password(password, user.password_hash)
+        ):
             raise InvalidCredentialsError("Invalid username or password.")
         if user.status != UserStatus.ACTIVE:
             raise AuthenticationError("User is disabled.", code="USER_DISABLED")
@@ -62,7 +83,7 @@ class AuthService:
         payload = decode_token(refresh_token, expected_type="refresh")
         user_id = uuid.UUID(payload["sub"])
         user = await self.repository.get_by_id(user_id)
-        if user is None:
+        if user is None or user.id == DEMO_USER_ID:
             raise InvalidCredentialsError("User no longer exists.")
         if user.status != UserStatus.ACTIVE:
             raise AuthenticationError("User is disabled.", code="USER_DISABLED")

@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+.env.*
+data
+__pycache__
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.run-local-demo-tests
+celerybeat-schedule*
+*.sqlite3*

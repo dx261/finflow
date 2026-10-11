@@ -42,6 +42,7 @@ class AuditService:
     async def list_logs(
         self,
         *,
+        user_id: uuid.UUID,
         resource_type: str | None = None,
         resource_id: str | None = None,
         action: str | None = None,
@@ -49,6 +50,7 @@ class AuditService:
         offset: int = 0,
     ) -> list[AuditLog]:
         return await self.repository.list(
+            user_id=user_id,
             resource_type=resource_type,
             resource_id=resource_id,
             action=action,

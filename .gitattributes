@@ -1,0 +1,4 @@
+# Batch files must keep Windows line endings after checkout.
+*.bat text eol=crlf
+# Git Bash scripts must keep Unix line endings.
+*.sh text eol=lf

@@ -168,7 +168,7 @@ DRAFT ──► PLANNED ──► ALLOCATED ──► RESERVED ──► WAITING
 | OWNER | 全部：增删改账户/银行/付款、分配、执行、导入、对账 |
 | VIEWER | 只读：看仪表盘/账户/交易/预测/审计 |
 
-注册规则：**第一个注册的用户自动成为 OWNER**，之后都是 VIEWER。后端用依赖注入 `require_owner` 拦截写操作，返回 `403 FORBIDDEN`。demo 用户 `demoowner` 会被强制为 OWNER（保证演示确定性）。
+注册规则：**第一个注册的用户自动成为 OWNER**，之后都是 VIEWER；生产环境还必须提供 `REGISTRATION_TOKEN` 邀请码。后端用依赖注入 `require_owner` 拦截写操作，返回 `403 FORBIDDEN`。demo 用户 `demoowner` 会被强制为 OWNER（保证演示确定性）。
 
 ---
 

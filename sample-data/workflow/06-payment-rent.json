@@ -1,0 +1,10 @@
+{
+  "name": "十月房租",
+  "description": "全流程模拟付款",
+  "payee_name": "模拟房东",
+  "amount": "8000.00",
+  "currency": "CNY",
+  "planned_date": "2026-10-15",
+  "priority": "HIGH",
+  "preferred_account_id": "REPLACE_WITH_CNY_ACCOUNT_ID"
+}

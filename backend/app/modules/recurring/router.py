@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 from app.modules.recurring.schemas import RecurringCreate, RecurringRead, RecurringUpdate
 from app.modules.recurring.service import RecurringService
 
@@ -18,8 +18,8 @@ router = APIRouter(prefix="/recurring", tags=["recurring"])
 
 
 @router.get("", response_model=list[RecurringRead])
-async def list_recurring(current_user: CurrentUser, session: DbSession) -> list[RecurringRead]:
-    items = await RecurringService(session).list(current_user.id)
+async def list_recurring(data_owner_id: DataOwnerId, session: DbSession) -> list[RecurringRead]:
+    items = await RecurringService(session).list(data_owner_id)
     return [RecurringRead.model_validate(item) for item in items]
 
 

@@ -1,6 +1,6 @@
 """Forecast engine and API tests."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.modules.forecast.engine import (
@@ -136,3 +136,109 @@ async def test_cashflow_plan_crud(client, seeded_banks, auth_headers) -> None:
     deleted = await client.delete(f"/api/v1/cashflow-plans/{plan_id}", headers=auth_headers)
     assert deleted.status_code == 204
     assert (await client.get("/api/v1/cashflow-plans", headers=auth_headers)).json() == []
+
+
+async def test_manual_expense_is_included_in_forecast(client, seeded_banks, auth_headers) -> None:
+    banks = (await client.get("/api/v1/banks", headers=auth_headers)).json()
+    account = await client.post(
+        "/api/v1/accounts",
+        headers=auth_headers,
+        json={"bank_id": banks[0]["id"], "name": "支出账户", "actual_balance": "10000"},
+    )
+    account_id = account.json()["id"]
+    expense_date = date.today() + timedelta(days=2)
+    created = await client.post(
+        "/api/v1/cashflow-plans",
+        headers=auth_headers,
+        json={
+            "type": "EXPENSE",
+            "name": "保险",
+            "amount": "3000.00",
+            "date": expense_date.isoformat(),
+            "account_id": account_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    forecast = (
+        await client.get("/api/v1/forecast", headers=auth_headers, params={"days": 7})
+    ).json()
+    day = next(
+        item
+        for item in forecast["accounts"][account_id]
+        if item["date"] == expense_date.isoformat()
+    )
+    assert Decimal(day["expected_expense"]) == Decimal("3000.00")
+    assert Decimal(day["ending_balance"]) == Decimal("7000.00")
+
+
+async def test_cashflow_plan_rejects_foreign_or_missing_account(
+    client, seeded_banks, auth_headers
+) -> None:
+    response = await client.post(
+        "/api/v1/cashflow-plans",
+        headers=auth_headers,
+        json={
+            "type": "INCOME",
+            "name": "invalid",
+            "amount": "1.00",
+            "date": date.today().isoformat(),
+            "account_id": "00000000-0000-0000-0000-000000000001",
+        },
+    )
+    assert response.status_code == 404
+
+
+async def test_unassigned_payment_is_reported_instead_of_disappearing(
+    client, seeded_banks, auth_headers
+) -> None:
+    planned_date = date.today() + timedelta(days=2)
+    created = await client.post(
+        "/api/v1/payments",
+        headers=auth_headers,
+        json={"name": "待选账户付款", "amount": "88.00", "planned_date": planned_date.isoformat()},
+    )
+    payment_id = created.json()["id"]
+    await client.post(
+        f"/api/v1/payments/{payment_id}/transition",
+        headers=auth_headers,
+        json={"target_status": "PLANNED"},
+    )
+
+    forecast = (
+        await client.get("/api/v1/forecast", headers=auth_headers, params={"days": 7})
+    ).json()
+    item = next(item for item in forecast["unassigned"] if item["id"] == payment_id)
+    assert item["currency"] == "CNY"
+    assert item["flow_type"] == "expense"
+
+
+async def test_forecast_aggregates_are_separated_by_currency(
+    client, seeded_banks, auth_headers
+) -> None:
+    banks = (await client.get("/api/v1/banks", headers=auth_headers)).json()
+    for currency, balance in (("CNY", "1000"), ("USD", "200")):
+        response = await client.post(
+            "/api/v1/accounts",
+            headers=auth_headers,
+            json={
+                "bank_id": banks[0]["id"],
+                "name": f"{currency}账户",
+                "currency": currency,
+                "actual_balance": balance,
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    forecast = (
+        await client.get("/api/v1/forecast", headers=auth_headers, params={"days": 7})
+    ).json()
+    assert forecast["aggregate"] == []
+    assert forecast["aggregate_currency"] is None
+    assert set(forecast["aggregates_by_currency"]) == {"CNY", "USD"}
+    assert Decimal(forecast["aggregates_by_currency"]["CNY"][0]["ending_balance"]) == Decimal(
+        "1000.00"
+    )
+    assert Decimal(forecast["aggregates_by_currency"]["USD"][0]["ending_balance"]) == Decimal(
+        "200.00"
+    )

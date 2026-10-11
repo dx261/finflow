@@ -11,12 +11,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.accounts.models import Account
+from app.modules.audit.service import AuditService
 from app.modules.payments.models import PaymentPlan, PaymentStatus
 from app.modules.payments.repository import PaymentRepository
 from app.modules.payments.schemas import ManualExecution, PaymentCreate, PaymentUpdate
 from app.modules.payments.state_machine import assert_transition
 
 _EDITABLE_STATUSES = {PaymentStatus.DRAFT, PaymentStatus.PLANNED}
+
+# Only transitions without additional domain side effects may use the generic
+# transition endpoint.  Allocation, reservation release, execution and
+# settlement each have dedicated commands which update related records in the
+# same transaction.
+_DIRECT_TRANSITIONS = {
+    (PaymentStatus.DRAFT, PaymentStatus.PLANNED),
+    (PaymentStatus.PLANNED, PaymentStatus.CANCELLED),
+    (PaymentStatus.RESERVED, PaymentStatus.WAITING_MANUAL_EXECUTION),
+}
 
 
 class PaymentService:
@@ -45,6 +56,13 @@ class PaymentService:
         if payload.preferred_account_id is not None:
             await self._get_owned_account(user_id, payload.preferred_account_id)
         payment = await self.repository.create(user_id, payload)
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="PAYMENT_CREATED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            after_data={"status": payment.status.value, "amount": str(payment.amount)},
+        )
         await self.session.commit()
         return payment
 
@@ -52,11 +70,20 @@ class PaymentService:
         self, user_id: uuid.UUID, payment_id: uuid.UUID, payload: PaymentUpdate
     ) -> PaymentPlan:
         payment = await self.get_payment(user_id, payment_id)
+        before_data = {"status": payment.status.value, "amount": str(payment.amount)}
         if payment.status not in _EDITABLE_STATUSES:
             raise ConflictError("Payment can only be edited in DRAFT or PLANNED.")
         if payload.preferred_account_id is not None:
             await self._get_owned_account(user_id, payload.preferred_account_id)
         updated = await self.repository.update(payment, payload)
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="PAYMENT_UPDATED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            before_data=before_data,
+            after_data={"status": updated.status.value, "amount": str(updated.amount)},
+        )
         await self.session.commit()
         return updated
 
@@ -64,16 +91,40 @@ class PaymentService:
         payment = await self.get_payment(user_id, payment_id)
         if payment.status not in _EDITABLE_STATUSES:
             raise ConflictError("Only DRAFT or PLANNED payments can be deleted.")
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="PAYMENT_DELETED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            before_data={"status": payment.status.value, "amount": str(payment.amount)},
+        )
         await self.repository.delete(payment)
         await self.session.commit()
 
     async def transition(
         self, user_id: uuid.UUID, payment_id: uuid.UUID, target: PaymentStatus
     ) -> PaymentPlan:
-        """Advance a payment to ``target``, validated by the state machine."""
+        """Perform a side-effect-free status transition.
+
+        Transitions that allocate funds, release reservations or settle a
+        payment must go through their dedicated domain endpoint.  Merely
+        assigning the target status would leave allocations/reconciliations
+        inconsistent.
+        """
         payment = await self.get_payment(user_id, payment_id)
+        previous = payment.status
         assert_transition(payment.status, target)
+        if (payment.status, target) not in _DIRECT_TRANSITIONS:
+            raise ConflictError("This status change requires its dedicated business operation.")
         payment.status = target
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="PAYMENT_STATUS_CHANGED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            before_data={"status": previous.value},
+            after_data={"status": target.value},
+        )
         await self.session.commit()
         return payment
 
@@ -100,10 +151,23 @@ class PaymentService:
                 raise NotFoundError("Account not found.")
 
         assert_transition(payment.status, PaymentStatus.MANUALLY_EXECUTED)
+        previous = payment.status
         payment.status = PaymentStatus.MANUALLY_EXECUTED
         payment.manual_execution_at = payload.executed_at or datetime.now(UTC)
         payment.manual_execution_account_id = payload.account_id
         payment.manual_execution_note = payload.note
         payment.bank_reference = payload.bank_reference
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="PAYMENT_MANUALLY_EXECUTED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            before_data={"status": previous.value},
+            after_data={
+                "status": payment.status.value,
+                "account_id": str(payload.account_id) if payload.account_id else None,
+                "executed_at": payment.manual_execution_at.isoformat(),
+            },
+        )
         await self.session.commit()
         return payment

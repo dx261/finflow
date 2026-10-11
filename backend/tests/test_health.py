@@ -23,6 +23,22 @@ def test_health_exposes_api_prefix() -> None:
     assert response.status_code == 200
 
 
+def test_liveness_does_not_depend_on_redis() -> None:
+    response = client.get("/api/v1/health/live")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_readiness_fails_when_required_dependency_is_unavailable() -> None:
+    response = client.get("/api/v1/health/ready")
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "database": "ok",
+        "redis": "unavailable",
+    }
+
+
 def test_openapi_docs_available() -> None:
     response = client.get("/docs")
     assert response.status_code == 200

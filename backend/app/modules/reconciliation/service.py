@@ -5,14 +5,16 @@ payment against real bank transactions.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError
+from app.modules.accounts.models import Account
 from app.modules.allocation.models import AllocationStatus, FundAllocation
+from app.modules.audit.service import AuditService
 from app.modules.payments.models import PaymentPlan, PaymentStatus
 from app.modules.payments.state_machine import assert_transition
 from app.modules.reconciliation.models import Reconciliation, ReconStatus
@@ -22,7 +24,7 @@ from app.modules.reconciliation.scoring import (
     TransactionMatchSide,
     score_match,
 )
-from app.modules.statements.models import Transaction
+from app.modules.statements.models import ReconciliationStatus, Transaction
 
 
 class ReconciliationService:
@@ -59,11 +61,31 @@ class ReconciliationService:
         if account_id is None:
             raise ConflictError("No execution account recorded for this payment.")
 
+        # Repeated requests must not create several open suggestions for the
+        # same payment.  A rejected suggestion may be followed by a new run.
+        open_recon = await self.session.scalar(
+            select(Reconciliation)
+            .where(
+                Reconciliation.payment_id == payment.id,
+                Reconciliation.status.in_((ReconStatus.AUTO_MATCHED, ReconStatus.REVIEW_REQUIRED)),
+            )
+            .order_by(Reconciliation.created_at.desc())
+            .limit(1)
+        )
+        if open_recon is not None:
+            return open_recon
+
+        start_date = payment.planned_date - timedelta(days=settings.recon_candidate_window_days)
+        end_date = payment.planned_date + timedelta(days=settings.recon_candidate_window_days)
+
         candidates = list(
             await self.session.scalars(
                 select(Transaction).where(
                     Transaction.account_id == account_id,
                     Transaction.direction == "DEBIT",
+                    Transaction.reconciliation_status == ReconciliationStatus.UNMATCHED,
+                    Transaction.transaction_date >= start_date,
+                    Transaction.transaction_date <= end_date,
                 )
             )
         )
@@ -94,12 +116,25 @@ class ReconciliationService:
 
         if best[0] is None:
             raise ConflictError("No candidate transactions to reconcile against.")
+        if best[1] < settings.review_threshold:
+            raise ConflictError("No candidate transaction met the review threshold.")
 
         recon = best[0]
         self.session.add(recon)
 
         assert_transition(payment.status, PaymentStatus.RECONCILING)
         payment.status = PaymentStatus.RECONCILING
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="RECONCILIATION_PROPOSED",
+            resource_type="reconciliation",
+            resource_id=str(recon.id),
+            after_data={
+                "payment_id": str(payment.id),
+                "transaction_id": str(recon.transaction_id),
+                "score": recon.total_score,
+            },
+        )
         await self.session.commit()
         return recon
 
@@ -133,6 +168,16 @@ class ReconciliationService:
             raise ConflictError("Reconciliation already resolved.")
 
         payment = await self._get_payment(user_id, recon.payment_id)
+        txn = await self.session.scalar(
+            select(Transaction)
+            .where(Transaction.id == recon.transaction_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if txn is None:
+            raise NotFoundError("Transaction not found.")
+        if txn.reconciliation_status != ReconciliationStatus.UNMATCHED:
+            raise ConflictError("Transaction has already been reconciled.")
         assert_transition(payment.status, PaymentStatus.SETTLED)
         payment.status = PaymentStatus.SETTLED
 
@@ -149,8 +194,20 @@ class ReconciliationService:
             allocation.settled_at = datetime.now(UTC)
 
         recon.status = ReconStatus.CONFIRMED
+        txn.reconciliation_status = ReconciliationStatus.MATCHED
         recon.confirmed_by = user_id
         recon.confirmed_at = datetime.now(UTC)
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="RECONCILIATION_CONFIRMED",
+            resource_type="reconciliation",
+            resource_id=str(recon.id),
+            after_data={
+                "payment_id": str(payment.id),
+                "transaction_id": str(txn.id),
+                "status": recon.status.value,
+            },
+        )
         await self.session.commit()
         return recon
 
@@ -160,6 +217,12 @@ class ReconciliationService:
         if recon.status not in (ReconStatus.AUTO_MATCHED, ReconStatus.REVIEW_REQUIRED):
             raise ConflictError("Reconciliation already resolved.")
         recon.status = ReconStatus.REJECTED
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="RECONCILIATION_REJECTED",
+            resource_type="reconciliation",
+            resource_id=str(recon.id),
+        )
         await self.session.commit()
         return recon
 
@@ -175,6 +238,15 @@ class ReconciliationService:
         txn = await self.session.get(Transaction, transaction_id)
         if txn is None:
             raise NotFoundError("Transaction not found.")
+        account = await self.session.get(Account, txn.account_id)
+        if account is None or account.user_id != user_id:
+            raise NotFoundError("Transaction not found.")
+        if txn.reconciliation_status != ReconciliationStatus.UNMATCHED:
+            raise ConflictError("Transaction has already been reconciled.")
+
+        expected_account_id = payment.manual_execution_account_id or payment.preferred_account_id
+        if expected_account_id is None:
+            raise ConflictError("No execution account recorded for this payment.")
 
         txn_side = TransactionMatchSide(
             amount=txn.amount,
@@ -189,7 +261,7 @@ class ReconciliationService:
                 planned_date=payment.planned_date,
                 payee_name=payment.payee_name,
                 bank_reference=payment.bank_reference,
-                account_id=str(txn.account_id),
+                account_id=str(expected_account_id),
             ),
             txn_side,
         )
@@ -205,6 +277,13 @@ class ReconciliationService:
             ReconStatus.AUTO_MATCHED
             if score.total >= settings.auto_match_threshold
             else ReconStatus.REVIEW_REQUIRED
+        )
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="RECONCILIATION_TRANSACTION_SELECTED",
+            resource_type="reconciliation",
+            resource_id=str(recon.id),
+            after_data={"transaction_id": str(txn.id), "score": score.total},
         )
         await self.session.commit()
         return recon
@@ -238,19 +317,30 @@ class ReconciliationService:
 
         assert_transition(payment.status, target)
         payment.status = target
+        await AuditService(self.session).record(
+            user_id=user_id,
+            action="FUNDS_RELEASED",
+            resource_type="payment",
+            resource_id=str(payment.id),
+            after_data={"status": target.value, "allocations": len(allocations)},
+        )
         await self.session.commit()
         return payment
 
     # --- query --------------------------------------------------------------
 
     async def list_pending(self, user_id: uuid.UUID) -> list[Reconciliation]:
-        """Workbench: REVIEW_REQUIRED matches for the user's payments."""
+        """Return every unresolved match that still needs a user decision.
+
+        ``AUTO_MATCHED`` means high confidence, not automatic settlement.  It
+        must therefore remain visible until the user confirms it.
+        """
         result = await self.session.scalars(
             select(Reconciliation)
             .join(PaymentPlan, PaymentPlan.id == Reconciliation.payment_id)
             .where(
                 PaymentPlan.user_id == user_id,
-                Reconciliation.status == ReconStatus.REVIEW_REQUIRED,
+                Reconciliation.status.in_((ReconStatus.AUTO_MATCHED, ReconStatus.REVIEW_REQUIRED)),
             )
             .order_by(Reconciliation.created_at)
         )

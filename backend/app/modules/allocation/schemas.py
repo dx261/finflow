@@ -11,7 +11,7 @@ from app.modules.allocation.models import AllocationStatus
 
 class AllocationItem(BaseModel):
     account_id: uuid.UUID
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
 
 
 class AllocationRead(BaseModel):

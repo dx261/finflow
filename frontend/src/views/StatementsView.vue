@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 import { api, errorMessage } from '@/api/client'
 import type { Account, StatementImport, StatementImportDetail } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
+const auth = useAuthStore()
+const isOwner = computed(() => auth.user?.role === 'OWNER')
 const accounts = ref<Account[]>([])
 const accountFilter = ref('')
 const forceImport = ref(false)
@@ -159,17 +162,18 @@ onUnmounted(() => {
           <el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" />
         </el-select>
       </el-form-item>
-      <el-form-item>
-        <el-switch v-model="forceImport" active-text="强制导入（跳过重复校验）" />
+      <el-form-item v-if="isOwner">
+        <el-switch v-model="forceImport" active-text="重新处理同一文件（流水仍会去重）" />
       </el-form-item>
     </el-form>
 
     <el-upload
+      v-if="isOwner"
       v-model:file-list="fileList"
       drag
       multiple
       :auto-upload="false"
-      accept=".xlsx,.xls,.csv,.txt"
+      accept=".xlsx,.xls,.csv"
       class="upload-zone"
     >
       <el-icon class="el-icon--upload"><upload-filled /></el-icon>
@@ -184,6 +188,7 @@ onUnmounted(() => {
     </el-upload>
 
     <el-button
+      v-if="isOwner"
       type="primary"
       class="upload-btn"
       :loading="importing"

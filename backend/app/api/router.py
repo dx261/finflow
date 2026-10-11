@@ -7,7 +7,7 @@ prefix. System endpoints (health) live here as well.
 import asyncio
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -64,7 +64,7 @@ async def check_database() -> str:
 
 @api_router.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
-    """Liveness probe.
+    """Backward-compatible detailed health report.
 
     Reports service status plus the state of each infrastructure
     dependency. Dependencies degrade gracefully — an unavailable database
@@ -74,4 +74,24 @@ async def health() -> dict[str, str]:
         "status": "ok",
         "database": await check_database(),
         "redis": await ping_redis(),
+    }
+
+
+@api_router.get("/health/live", tags=["system"])
+async def liveness() -> dict[str, str]:
+    """Report whether the HTTP process is alive, without dependency checks."""
+    return {"status": "ok"}
+
+
+@api_router.get("/health/ready", tags=["system"])
+async def readiness(response: Response) -> dict[str, str]:
+    """Report whether the API can serve database- and queue-backed work."""
+    database, redis = await asyncio.gather(check_database(), ping_redis())
+    ready = database == "ok" and (redis == "ok" or settings.local_demo)
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "ok" if ready else "unavailable",
+        "database": database,
+        "redis": redis,
     }

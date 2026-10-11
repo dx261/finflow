@@ -16,9 +16,9 @@ from app.modules.accounts.schemas import (
     BalanceSnapshotCreate,
     BalanceSnapshotRead,
 )
-from app.modules.allocation.service import sum_reserved_amount
+from app.modules.allocation.service import sum_reserved_amount, sum_reserved_amounts
 from app.modules.audit.service import AuditService
-from app.modules.auth.models import User, UserRole
+from app.modules.auth.models import User
 
 
 class AccountService:
@@ -44,8 +44,12 @@ class AccountService:
         value = account.actual_balance - reserved - account.minimum_balance
         return self._money(value)
 
-    async def to_read(self, account: Account) -> AccountRead:
-        reserved = await self.reserved_amount(account)
+    async def to_read(
+        self, account: Account, reserved_amount: Decimal | None = None
+    ) -> AccountRead:
+        reserved = (
+            await self.reserved_amount(account) if reserved_amount is None else reserved_amount
+        )
         return AccountRead(
             id=account.id,
             user_id=account.user_id,
@@ -63,6 +67,12 @@ class AccountService:
             planning_available=self._money(
                 account.actual_balance - reserved - account.minimum_balance
             ),
+            reservation_shortfall=self._money(
+                max(
+                    Decimal("0"),
+                    reserved + account.minimum_balance - account.actual_balance,
+                )
+            ),
             created_at=account.created_at,
             updated_at=account.updated_at,
         )
@@ -71,10 +81,14 @@ class AccountService:
 
     async def list_accounts(self, user_id: uuid.UUID) -> list[AccountRead]:
         accounts = await self.repository.list_by_user(user_id)
-        return [await self.to_read(account) for account in accounts]
+        reserved = await sum_reserved_amounts(self.session, [account.id for account in accounts])
+        return [
+            await self.to_read(account, reserved.get(account.id, Decimal("0")))
+            for account in accounts
+        ]
 
-    async def get_account(self, account_id: uuid.UUID, current_user: User) -> AccountRead:
-        account = await self._owned_account(account_id, current_user)
+    async def get_account(self, account_id: uuid.UUID, data_owner_id: uuid.UUID) -> AccountRead:
+        account = await self._account_for_owner(account_id, data_owner_id)
         return await self.to_read(account)
 
     async def create_account(self, user_id: uuid.UUID, payload: AccountCreate) -> AccountRead:
@@ -108,15 +122,22 @@ class AccountService:
 
     async def delete_account(self, account_id: uuid.UUID, current_user: User) -> None:
         account = await self._owned_account(account_id, current_user)
+        await AuditService(self.session).record(
+            user_id=current_user.id,
+            action="ACCOUNT_DELETED",
+            resource_type="account",
+            resource_id=str(account.id),
+            before_data=(await self.to_read(account)).model_dump(mode="json"),
+        )
         await self.repository.delete(account)
         await self.session.commit()
 
     # --- balance snapshots -------------------------------------------------
 
     async def list_snapshots(
-        self, account_id: uuid.UUID, current_user: User
+        self, account_id: uuid.UUID, data_owner_id: uuid.UUID
     ) -> list[BalanceSnapshotRead]:
-        account = await self._owned_account(account_id, current_user)
+        account = await self._account_for_owner(account_id, data_owner_id)
         snapshots = await self.repository.list_snapshots(account.id)
         return [BalanceSnapshotRead.model_validate(s) for s in snapshots]
 
@@ -131,13 +152,27 @@ class AccountService:
             snapshot_date=payload.snapshot_date or date.today(),
             source=payload.source,
         )
+        await AuditService(self.session).record(
+            user_id=current_user.id,
+            action="BALANCE_SNAPSHOT_CREATED",
+            resource_type="account_balance_snapshot",
+            resource_id=str(snapshot.id),
+            after_data={
+                "account_id": str(account.id),
+                "balance": str(snapshot.balance),
+                "snapshot_date": snapshot.snapshot_date.isoformat(),
+            },
+        )
         await self.session.commit()
         return BalanceSnapshotRead.model_validate(snapshot)
 
     async def _owned_account(self, account_id: uuid.UUID, current_user: User) -> Account:
+        return await self._account_for_owner(account_id, current_user.id)
+
+    async def _account_for_owner(self, account_id: uuid.UUID, data_owner_id: uuid.UUID) -> Account:
         account = await self.repository.get_by_id(account_id)
         if account is None:
             raise NotFoundError("Account not found.")
-        if account.user_id != current_user.id and current_user.role != UserRole.OWNER:
-            raise PermissionDeniedError("You do not own this account.")
+        if account.user_id != data_owner_id:
+            raise PermissionDeniedError("You do not have access to this account.")
         return account

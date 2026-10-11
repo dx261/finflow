@@ -1,0 +1,9 @@
+{
+  "type": "INCOME",
+  "name": "十月工资",
+  "amount": "18000.00",
+  "currency": "CNY",
+  "date": "2026-10-31",
+  "account_id": "REPLACE_WITH_CNY_ACCOUNT_ID",
+  "is_recurring": false
+}

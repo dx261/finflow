@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { api, errorMessage } from '@/api/client'
 import type { Account, Allocation, PaymentPlan } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
+const auth = useAuthStore()
+const router = useRouter()
+const isOwner = computed(() => auth.user?.role === 'OWNER')
 const payments = ref<PaymentPlan[]>([])
 const accounts = ref<Account[]>([])
 const loading = ref(true)
@@ -41,6 +46,19 @@ const statusTag: Record<string, string> = {
   SETTLED: 'success',
   EXCEPTION: 'danger',
   CANCELLED: 'info',
+}
+
+const statusLabel: Record<string, string> = {
+  DRAFT: '草稿',
+  PLANNED: '待分配',
+  ALLOCATED: '待确认预留',
+  RESERVED: '已预留',
+  WAITING_MANUAL_EXECUTION: '待人工付款',
+  MANUALLY_EXECUTED: '待发起对账',
+  RECONCILING: '对账中',
+  SETTLED: '已结算',
+  EXCEPTION: '异常',
+  CANCELLED: '已取消',
 }
 
 const priorityLabel: Record<string, string> = {
@@ -110,6 +128,20 @@ async function transition(payment: PaymentPlan, target: string): Promise<void> {
   } catch (error) {
     ElMessage.error(errorMessage(error))
   }
+}
+
+async function startReconciliation(payment: PaymentPlan): Promise<void> {
+  try {
+    await api.post(`/payments/${payment.id}/reconcile`)
+    ElMessage.success('已生成对账候选，请核对匹配流水')
+    await router.push('/reconciliation')
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  }
+}
+
+async function goToAllocation(payment: PaymentPlan): Promise<void> {
+  await router.push({ path: '/allocations', query: { payment: payment.id } })
 }
 
 async function openManualExecute(payment: PaymentPlan): Promise<void> {
@@ -188,9 +220,14 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
             style="width: 200px; margin-right: 12px"
             @change="load"
           >
-            <el-option v-for="key in Object.keys(statusTag)" :key="key" :label="key" :value="key" />
+            <el-option
+              v-for="key in Object.keys(statusTag)"
+              :key="key"
+              :label="statusLabel[key]"
+              :value="key"
+            />
           </el-select>
-          <el-button type="primary" @click="openCreate">新建付款计划</el-button>
+          <el-button v-if="isOwner" type="primary" @click="openCreate">新建付款计划</el-button>
         </div>
       </div>
     </template>
@@ -207,24 +244,22 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
       <el-table-column label="状态" width="180">
         <template #default="{ row }">
           <el-tag :type="(statusTag[row.status] ?? 'info') as any" size="small">{{
-            row.status
+              statusLabel[row.status] ?? row.status
           }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="330">
         <template #default="{ row }">
           <el-button size="small" @click="viewAllocations(row)">分配</el-button>
-          <template v-if="row.status === 'DRAFT'">
+          <template v-if="isOwner && row.status === 'DRAFT'">
             <el-button size="small" type="primary" @click="transition(row, 'PLANNED')"
               >计划</el-button
             >
           </template>
-          <template v-else-if="row.status === 'PLANNED'">
-            <el-button size="small" type="primary" @click="transition(row, 'ALLOCATED')"
-              >分配</el-button
-            >
+          <template v-else-if="isOwner && row.status === 'PLANNED'">
+            <el-button size="small" type="primary" @click="goToAllocation(row)">去分配</el-button>
           </template>
-          <template v-else-if="row.status === 'RESERVED'">
+          <template v-else-if="isOwner && row.status === 'RESERVED'">
             <el-button
               size="small"
               type="warning"
@@ -232,10 +267,17 @@ async function viewAllocations(payment: PaymentPlan): Promise<void> {
               >待执行</el-button
             >
           </template>
-          <template v-else-if="row.status === 'WAITING_MANUAL_EXECUTION'">
+          <template v-else-if="isOwner && row.status === 'WAITING_MANUAL_EXECUTION'">
             <el-button size="small" type="success" @click="openManualExecute(row)"
               >标记已执行</el-button
             >
+          </template>
+          <template
+            v-else-if="isOwner && ['MANUALLY_EXECUTED', 'RECONCILING'].includes(row.status)"
+          >
+            <el-button size="small" type="primary" @click="startReconciliation(row)">
+              {{ row.status === 'RECONCILING' ? '重新匹配' : '发起对账' }}
+            </el-button>
           </template>
         </template>
       </el-table-column>

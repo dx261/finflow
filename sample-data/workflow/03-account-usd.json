@@ -1,0 +1,10 @@
+{
+  "bank_id": "REPLACE_WITH_BANK_ID",
+  "name": "模拟美元账户",
+  "masked_account_no": "****8401",
+  "account_type": "SAVINGS",
+  "currency": "USD",
+  "actual_balance": "1200.00",
+  "minimum_balance": "200.00",
+  "include_in_allocation": true
+}

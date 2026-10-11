@@ -163,3 +163,34 @@ async def test_confirm_requires_proposed_allocations(client, seeded_banks, auth_
         f"/api/v1/payments/{payment_id}/allocations/confirm", headers=auth_headers
     )
     assert response.status_code == 409
+
+
+async def test_preview_rejects_shortage(client, seeded_banks, auth_headers) -> None:
+    await _create_account(client, auth_headers, "CMB", "1000")
+    payment_id = await _planned_payment(client, auth_headers, "2000")
+    response = await client.post(
+        f"/api/v1/payments/{payment_id}/allocations/preview", headers=auth_headers
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "INSUFFICIENT_PLANNING_FUNDS"
+
+
+async def test_confirm_rechecks_stale_account_balance(client, seeded_banks, auth_headers) -> None:
+    account_id = await _create_account(client, auth_headers, "CMB", "8000")
+    payment_id = await _planned_payment(client, auth_headers, "8000")
+    preview = await client.post(
+        f"/api/v1/payments/{payment_id}/allocations/preview", headers=auth_headers
+    )
+    assert preview.status_code == 200
+
+    changed = await client.put(
+        f"/api/v1/accounts/{account_id}",
+        headers=auth_headers,
+        json={"actual_balance": "1000"},
+    )
+    assert changed.status_code == 200
+    confirmed = await client.post(
+        f"/api/v1/payments/{payment_id}/allocations/confirm", headers=auth_headers
+    )
+    assert confirmed.status_code == 409
+    assert confirmed.json()["code"] == "INSUFFICIENT_PLANNING_FUNDS"

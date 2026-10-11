@@ -139,6 +139,28 @@ async def test_preferred_account_must_be_owned(client, seeded_banks, auth_header
     assert response.json()["code"] == "NOT_FOUND"
 
 
+async def test_generic_transition_cannot_bypass_allocation_side_effects(
+    client, seeded_banks, auth_headers
+) -> None:
+    payment = await _create_payment(client, auth_headers)
+    payment_id = payment["id"]
+    planned = await client.post(
+        f"/api/v1/payments/{payment_id}/transition",
+        headers=auth_headers,
+        json={"target_status": "PLANNED"},
+    )
+    assert planned.status_code == 200
+
+    bypass = await client.post(
+        f"/api/v1/payments/{payment_id}/transition",
+        headers=auth_headers,
+        json={"target_status": "ALLOCATED"},
+    )
+    assert bypass.status_code == 409
+    detail = await client.get(f"/api/v1/payments/{payment_id}", headers=auth_headers)
+    assert detail.json()["status"] == "PLANNED"
+
+
 async def test_viewer_cannot_create_payment(client, seeded_banks) -> None:
     await client.post(
         "/api/v1/auth/register",

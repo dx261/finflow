@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.exceptions import AuthenticationError
 from app.core.security import (
@@ -162,3 +163,24 @@ def test_invalid_refresh_token_rejected() -> None:
     response = client.post("/api/v1/auth/refresh", json={"refresh_token": "not-a-real-token"})
     assert response.status_code == 401
     assert response.json()["code"] == "INVALID_TOKEN"
+
+
+def test_registration_token_is_enforced_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "registration_token", "a-secure-invite-token")
+    rejected = client.post(
+        "/api/v1/auth/register",
+        json={"username": "blocked", "email": "blocked@example.com", "password": "password123"},
+    )
+    assert rejected.status_code == 401
+    assert rejected.json()["code"] == "INVALID_REGISTRATION_TOKEN"
+
+    accepted = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "invited",
+            "email": "invited@example.com",
+            "password": "password123",
+            "registration_token": "a-secure-invite-token",
+        },
+    )
+    assert accepted.status_code == 201

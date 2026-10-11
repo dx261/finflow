@@ -22,16 +22,21 @@ async def _create_account(
     return response.json()
 
 
-async def test_audit_requires_owner(client: httpx.AsyncClient) -> None:
+async def test_audit_requires_authentication(client: httpx.AsyncClient) -> None:
     response = await client.get("/api/v1/audit")
     assert response.status_code == 401
 
 
-async def test_viewer_cannot_read_audit(client: httpx.AsyncClient, db_reset) -> None:
+async def test_viewer_can_read_owner_audit_log(client: httpx.AsyncClient, seeded_banks) -> None:
     await client.post(
         "/api/v1/auth/register",
         json={"username": "owner", "email": "o@test.dev", "password": "password123"},
     )
+    owner_login = await client.post(
+        "/api/v1/auth/login", json={"login": "owner", "password": "password123"}
+    )
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+    await _create_account(client, owner_headers, name="Shared audit account")
     await client.post(
         "/api/v1/auth/register",
         json={"username": "viewer", "email": "v@test.dev", "password": "password123"},
@@ -41,8 +46,8 @@ async def test_viewer_cannot_read_audit(client: httpx.AsyncClient, db_reset) -> 
     )
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     response = await client.get("/api/v1/audit", headers=headers)
-    assert response.status_code == 403
-    assert response.json()["code"] == "FORBIDDEN"
+    assert response.status_code == 200
+    assert any(log["action"] == "ACCOUNT_CREATED" for log in response.json())
 
 
 async def test_account_create_and_update_are_audited(

@@ -13,6 +13,7 @@ const login = ref('')
 const username = ref('')
 const email = ref('')
 const password = ref('')
+const registrationToken = ref('')
 const loading = ref(false)
 
 async function submit(): Promise<void> {
@@ -23,7 +24,7 @@ async function submit(): Promise<void> {
       ElMessage.success('登录成功')
       await router.push({ name: 'dashboard' })
     } else {
-      await auth.register(username.value, email.value, password.value)
+      await auth.register(username.value, email.value, password.value, registrationToken.value)
       ElMessage.success('注册成功，请登录')
       mode.value = 'login'
     }
@@ -55,6 +56,15 @@ function switchMode(): void {
           </el-form-item>
           <el-form-item label="邮箱" required>
             <el-input v-model="email" placeholder="you@example.com" autocomplete="email" />
+          </el-form-item>
+          <el-form-item label="注册邀请码">
+            <el-input
+              v-model="registrationToken"
+              type="password"
+              show-password
+              placeholder="生产环境必填"
+              autocomplete="one-time-code"
+            />
           </el-form-item>
         </template>
         <el-form-item label="密码" required>

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { api, errorMessage } from '@/api/client'
 import type { Account, Bank } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const auth = useAuthStore()
+const isOwner = computed(() => auth.user?.role === 'OWNER')
 const accounts = ref<Account[]>([])
 const banks = ref<Bank[]>([])
 const loading = ref(true)
@@ -89,7 +92,7 @@ function bankName(bankId: string): string {
       <template #header>
         <div class="card-header">
           <span>我的账户</span>
-          <el-button type="primary" @click="openCreate">新建账户</el-button>
+          <el-button v-if="isOwner" type="primary" @click="openCreate">新建账户</el-button>
         </div>
       </template>
 
@@ -102,19 +105,29 @@ function bankName(bankId: string): string {
           <template #default="{ row }">{{ accountTypeLabel[row.account_type] }}</template>
         </el-table-column>
         <el-table-column label="实际余额" width="140" align="right">
-          <template #default="{ row }">¥{{ row.actual_balance }}</template>
+          <template #default="{ row }">{{ row.currency }} {{ row.actual_balance }}</template>
         </el-table-column>
         <el-table-column label="虚拟预占" width="140" align="right">
           <template #default="{ row }">
-            <span class="reserved">¥{{ row.reserved_amount }}</span>
+            <span class="reserved">{{ row.currency }} {{ row.reserved_amount }}</span>
           </template>
         </el-table-column>
         <el-table-column label="最低保留" width="140" align="right">
-          <template #default="{ row }">¥{{ row.minimum_balance }}</template>
+          <template #default="{ row }">{{ row.currency }} {{ row.minimum_balance }}</template>
         </el-table-column>
         <el-table-column label="可规划资金" width="140" align="right">
           <template #default="{ row }">
-            <span class="available">¥{{ row.planning_available }}</span>
+            <span :class="Number(row.reservation_shortfall) > 0 ? 'shortfall' : 'available'">
+              {{ row.currency }} {{ row.planning_available }}
+            </span>
+            <el-tag
+              v-if="Number(row.reservation_shortfall) > 0"
+              type="danger"
+              size="small"
+              class="shortfall-tag"
+            >
+              缺口 {{ row.currency }} {{ row.reservation_shortfall }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -125,7 +138,10 @@ function bankName(bankId: string): string {
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="accounts.length === 0" description="暂无账户，点击右上角新建" />
+      <el-empty
+        v-if="accounts.length === 0"
+        :description="isOwner ? '暂无账户，点击右上角新建' : '暂无账户'"
+      />
     </el-card>
 
     <el-dialog v-model="dialogVisible" title="新建账户" width="480px">
@@ -191,5 +207,12 @@ function bankName(bankId: string): string {
 .available {
   color: #67c23a;
   font-weight: 600;
+}
+.shortfall {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.shortfall-tag {
+  margin-left: 6px;
 }
 </style>

@@ -5,7 +5,8 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import User, UserRole
+from app.modules.auth.demo import DEMO_USER_ID
+from app.modules.auth.models import User, UserRole, UserStatus
 
 
 class UserRepository:
@@ -31,8 +32,23 @@ class UserRepository:
         return result
 
     async def count(self) -> int:
-        result = await self.session.scalar(select(func.count()).select_from(User))
+        result = await self.session.scalar(
+            select(func.count()).select_from(User).where(User.id != DEMO_USER_ID)
+        )
         return int(result or 0)
+
+    async def get_active_owner(self) -> User | None:
+        """Return the workspace owner used as the shared data principal."""
+        return await self.session.scalar(
+            select(User)
+            .where(
+                User.role == UserRole.OWNER,
+                User.status == UserStatus.ACTIVE,
+                User.id != DEMO_USER_ID,
+            )
+            .order_by(User.created_at, User.id)
+            .limit(1)
+        )
 
     async def create(
         self,

@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
 import { api, errorMessage } from '@/api/client'
 import type { Account, Allocation, PaymentPlan } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
+const auth = useAuthStore()
+const route = useRoute()
+const isOwner = computed(() => auth.user?.role === 'OWNER')
 const payments = ref<PaymentPlan[]>([])
 const accounts = ref<Account[]>([])
 const allocations = ref<Allocation[]>([])
@@ -76,6 +81,10 @@ async function loadPayments(): Promise<void> {
   try {
     const res = await api.get<PaymentPlan[]>('/payments')
     payments.value = res.data.filter((p) => ['PLANNED', 'ALLOCATED', 'RESERVED'].includes(p.status))
+    const requestedPayment = typeof route.query.payment === 'string' ? route.query.payment : ''
+    if (requestedPayment && payments.value.some((p) => p.id === requestedPayment)) {
+      selectedPaymentId.value = requestedPayment
+    }
     if (selectedPaymentId.value && !payments.value.some((p) => p.id === selectedPaymentId.value)) {
       selectedPaymentId.value = payments.value[0]?.id ?? ''
     } else if (!selectedPaymentId.value) {
@@ -193,13 +202,10 @@ const segments = computed(() => {
   return segs
 })
 
-// Bar track width relative to the largest account capacity.
-const maxCapacity = computed(() =>
-  Math.max(0.01, ...allocatable.value.map((a) => Number(a.planning_available))),
-)
-
-function percent(v: number): number {
-  return Math.max(0, Math.min(100, (v / maxCapacity.value) * 100))
+function percent(value: number, capacity: string): number {
+  const available = Number(capacity)
+  if (available <= 0) return value > 0 ? 100 : 0
+  return Math.max(0, Math.min(100, (value / available) * 100))
 }
 
 watch(selectedPaymentId, () => void loadAllocations())
@@ -231,6 +237,7 @@ onMounted(async () => {
             </el-option>
           </el-select>
           <el-button
+            v-if="isOwner"
             type="primary"
             :disabled="!selectedPayment || selectedPayment.status !== 'PLANNED'"
             :loading="acting"
@@ -239,6 +246,7 @@ onMounted(async () => {
             生成建议方案
           </el-button>
           <el-button
+            v-if="isOwner"
             type="warning"
             :disabled="!selectedPayment || selectedPayment.status !== 'ALLOCATED'"
             :loading="acting"
@@ -247,6 +255,7 @@ onMounted(async () => {
             应用手动调整
           </el-button>
           <el-button
+            v-if="isOwner"
             type="success"
             :disabled="!selectedPayment || selectedPayment.status !== 'ALLOCATED'"
             :loading="acting"
@@ -336,7 +345,7 @@ onMounted(async () => {
               <div
                 class="acc-bar-fill"
                 :style="{
-                  width: percent(Number(edits[acc.id] || 0)) + '%',
+                  width: percent(Number(edits[acc.id] || 0), acc.planning_available) + '%',
                   background: accountColor(i),
                 }"
               />
@@ -351,7 +360,7 @@ onMounted(async () => {
             :precision="2"
             :min="0"
             :step="100"
-            :disabled="selectedPayment.status !== 'ALLOCATED'"
+            :disabled="!isOwner || selectedPayment.status !== 'ALLOCATED'"
             controls-position="right"
             class="acc-input"
             :placeholder="'可分配 ¥' + fmt(acc.planning_available)"

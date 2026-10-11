@@ -40,6 +40,7 @@ export interface Account {
   status: string
   reserved_amount: string
   planning_available: string
+  reservation_shortfall: string
   created_at: string
   updated_at: string
 }
@@ -62,6 +63,34 @@ export interface PaymentPlan {
   bank_reference: string | null
   created_at: string
   updated_at: string
+}
+
+export interface RecurringPayment {
+  id: string
+  name: string
+  amount: string
+  currency: string
+  frequency: 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
+  day_of_month: number
+  start_date: string
+  end_date: string | null
+  preferred_account_id: string | null
+  priority: string
+  enabled: boolean
+  created_at: string
+}
+
+export interface CashFlowPlan {
+  id: string
+  type: 'INCOME' | 'EXPENSE'
+  name: string
+  amount: string
+  currency: string
+  date: string
+  account_id: string | null
+  status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
+  is_recurring: boolean
+  created_at: string
 }
 
 export interface Allocation {
@@ -102,11 +131,25 @@ export interface ForecastDay {
 export interface ForecastResponse {
   accounts: Record<string, ForecastDay[]>
   aggregate: ForecastDay[]
+  aggregate_currency: string | null
+  aggregates_by_currency: Record<string, ForecastDay[]>
   warnings: Array<{
     account_id: string
+    account_name: string
+    currency: string
     date: string
     projected_balance: string
     minimum_balance: string
+  }>
+  unassigned: Array<{
+    id: string
+    source_type: 'PAYMENT' | 'CASHFLOW_PLAN'
+    name: string
+    date: string
+    amount: string
+    currency: string
+    flow_type: 'income' | 'expense'
+    reason: string
   }>
 }
 

@@ -24,6 +24,8 @@ async def ping_redis() -> str:
     Returns ``"ok"`` when reachable, otherwise ``"unavailable"``. A downed
     Redis must never crash the API, so this degrades gracefully.
     """
+    if settings.local_demo:
+        return "disabled"
     try:
         async with asyncio.timeout(3):
             await redis_client.ping()

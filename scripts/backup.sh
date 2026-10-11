@@ -14,6 +14,7 @@
 #   COMPOSE_FILE=docker-compose.yml ./scripts/backup.sh   # production stack
 #   BACKUP_DIR=/mnt/backups ./scripts/backup.sh
 set -euo pipefail
+umask 077
 
 cd "$(dirname "$0")/.."
 
@@ -36,8 +37,9 @@ if docker compose -f "$COMPOSE_FILE" exec -T postgres \
     > "$WORK_DIR/postgres.sql"; then
   echo "    postgres.sql $(wc -c < "$WORK_DIR/postgres.sql") bytes"
 else
-  echo "    WARNING: PostgreSQL dump failed (is the stack running?)"
+  echo "!! PostgreSQL dump failed; refusing to create an incomplete backup." >&2
   rm -f "$WORK_DIR/postgres.sql"
+  exit 1
 fi
 
 # --- 2. Redis (best effort) ----------------------------------------------
@@ -67,12 +69,14 @@ else
 fi
 
 # --- Archive --------------------------------------------------------------
-if [ -z "$(ls -A "$WORK_DIR")" ]; then
-  echo "!! Nothing was backed up — aborting."
-  exit 1
-fi
+# Record component checksums so restore can reject truncated/corrupt data.
+(
+  cd "$WORK_DIR"
+  sha256sum postgres.sql uploads.tar.gz redis.rdb 2>/dev/null > manifest.sha256 || true
+)
 
 tar czf "$ARCHIVE" -C "$WORK_DIR" .
+chmod 600 "$ARCHIVE"
 rm -rf "$WORK_DIR"
 trap - EXIT
 

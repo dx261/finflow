@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 from app.modules.payments.models import PaymentStatus
 from app.modules.payments.schemas import (
     ManualExecution,
@@ -25,11 +25,11 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 
 @router.get("", response_model=list[PaymentRead])
 async def list_payments(
-    current_user: CurrentUser,
+    data_owner_id: DataOwnerId,
     session: DbSession,
     status: PaymentStatus | None = None,
 ) -> list[PaymentRead]:
-    payments = await PaymentService(session).list_payments(current_user.id, status)
+    payments = await PaymentService(session).list_payments(data_owner_id, status)
     return [PaymentRead.model_validate(payment) for payment in payments]
 
 
@@ -44,10 +44,10 @@ async def create_payment(
 
 @router.get("/{payment_id}", response_model=PaymentRead)
 async def get_payment(
-    payment_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+    payment_id: uuid.UUID, data_owner_id: DataOwnerId, session: DbSession
 ) -> PaymentRead:
     return PaymentRead.model_validate(
-        await PaymentService(session).get_payment(current_user.id, payment_id)
+        await PaymentService(session).get_payment(data_owner_id, payment_id)
     )
 
 

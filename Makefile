@@ -1,8 +1,7 @@
 # FinFlow — developer convenience targets.
 # Requires GNU Make, Docker (for container targets), uv and npm.
 
-PY := uv run --project backend
-FRONT := cd frontend
+BACK := cd backend && uv run
 
 .PHONY: help install dev dev-api dev-front up down logs test lint migrate backup restore
 
@@ -14,7 +13,7 @@ install: ## Install backend and frontend dependencies
 	cd frontend && npm install
 
 dev-api: ## Run the FastAPI backend with hot reload (expects dev compose)
-	$(PY) uvicorn app.main:app --reload --port 8000
+	$(BACK) uvicorn app.main:app --reload --port 8000
 
 dev-front: ## Run the Vite dev server
 	cd frontend && npm run dev
@@ -32,16 +31,16 @@ logs: ## Tail logs of all services
 	docker compose logs -f --tail=100
 
 test: ## Run backend tests
-	$(PY) pytest
+	$(BACK) pytest
 
 lint: ## Lint and format-check backend and frontend
-	$(PY) ruff check backend/app backend/tests
-	$(PY) black --check backend/app backend/tests
-	$(PY) mypy backend/app
-	cd frontend && npm run lint && npm run type-check
+	$(BACK) ruff check app tests
+	$(BACK) black --check app tests alembic/versions
+	$(BACK) mypy app
+	cd frontend && npm run lint:check && npm run type-check
 
 migrate: ## Apply Alembic migrations (defined in TASK-003)
-	$(PY) alembic upgrade head
+	cd backend && uv run alembic upgrade head
 
 backup: ## Back up PostgreSQL and uploads (defined in TASK-058)
 	./scripts/backup.sh

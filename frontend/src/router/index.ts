@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { errorMessage } from '@/api/client'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -46,6 +47,12 @@ const router = createRouter({
           meta: { title: '账单导入' },
         },
         {
+          path: 'planning',
+          name: 'planning',
+          component: () => import('@/views/PlanningView.vue'),
+          meta: { title: '计划管理' },
+        },
+        {
           path: 'payments',
           name: 'payments',
           component: () => import('@/views/PaymentsView.vue'),
@@ -89,7 +96,13 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  await auth.restore()
+  try {
+    await auth.restore()
+    auth.startupError = null
+  } catch (error) {
+    auth.startupError = errorMessage(error)
+    return false
+  }
   if (to.name !== 'login' && !auth.isAuthenticated) {
     return { name: 'login' }
   }

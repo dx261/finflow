@@ -91,7 +91,7 @@ onMounted(loadBanks)
 
 <template>
   <div class="settings-page">
-    <el-card>
+    <el-card v-if="!auth.demoMode">
       <template #header>账户资料</template>
 
       <el-descriptions v-if="profile" :column="1" border>

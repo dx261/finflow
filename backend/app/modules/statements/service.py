@@ -2,21 +2,26 @@
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import (
     BadRequestError,
     DuplicateImportError,
     NotFoundError,
+    PayloadTooLargeError,
 )
 from app.modules.accounts.models import Account
+from app.modules.audit.service import AuditService
 from app.modules.banks.models import Bank
 from app.modules.categories.classifier import classify
 from app.modules.categories.models import Category
+from app.modules.relations.service import RelationService
 from app.modules.statements.dedup import compute_fingerprint
 from app.modules.statements.models import (
     StatementImport,
@@ -30,6 +35,7 @@ from app.modules.statements.parsers.generic import StatementFile
 from app.modules.statements.repository import StatementRepository
 from app.modules.statements.schemas import UploadResult
 from app.modules.statements.storage import StatementStorage
+from app.modules.transfers.service import TransferService
 
 logger = logging.getLogger("finflow")
 
@@ -60,35 +66,75 @@ class StatementService:
         extension = Path(filename).suffix.lower().lstrip(".")
         if extension not in _ALLOWED_EXTENSIONS:
             raise BadRequestError(f"Unsupported file type: .{extension}")
+        if len(content) > settings.max_upload_size_mb * 1024 * 1024:
+            raise PayloadTooLargeError(
+                f"Statement exceeds the {settings.max_upload_size_mb} MB upload limit."
+            )
 
         await self._get_owned_account(user_id, account_id)
 
-        stored, file_hash, ext = self.storage.save(filename, content)
+        file_hash = self.storage.hash_content(content)
         existing = await self.repository.get_by_hash(account_id, file_hash)
-        if existing is not None:
-            if not force_import:
-                raise DuplicateImportError("This statement file was already imported.")
-            return UploadResult(
-                import_id=existing.id,
-                status=existing.status,
-                is_duplicate=True,
-                message="Duplicate upload accepted with force_import.",
-            )
+        if existing is not None and not force_import:
+            raise DuplicateImportError("This statement file was already imported.")
 
-        import_record = await self.repository.create_import(
-            account_id=account_id,
-            original_filename=filename,
-            stored_filename=stored,
-            file_hash=file_hash,
-            file_type=ext,
-        )
-        await self.session.commit()
+        stored, _, ext = self.storage.save(filename, content)
+        try:
+            import_record = await self.repository.create_import(
+                account_id=account_id,
+                original_filename=filename,
+                stored_filename=stored,
+                file_hash=file_hash,
+                file_type=ext,
+            )
+            await AuditService(self.session).record(
+                user_id=user_id,
+                action="STATEMENT_UPLOADED",
+                resource_type="statement_import",
+                resource_id=str(import_record.id),
+                after_data={
+                    "account_id": str(account_id),
+                    "filename": filename,
+                    "forced": existing is not None,
+                },
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            self.storage.delete(stored)
+            raise
         return UploadResult(
             import_id=import_record.id,
             status=import_record.status,
             is_duplicate=False,
-            message="Upload accepted, processing queued.",
+            message=(
+                "Forced re-import accepted, processing queued."
+                if existing is not None
+                else "Upload accepted, processing queued."
+            ),
         )
+
+    async def mark_queued(self, import_id: uuid.UUID) -> None:
+        record = await self.repository.get_import(import_id)
+        if record is None:
+            raise NotFoundError("Statement import not found.")
+        await self.repository.set_status(record, StatementImportStatus.QUEUED)
+        await self.session.commit()
+
+    async def mark_dispatch_failed(self, import_id: uuid.UUID) -> None:
+        record = await self.repository.get_import(import_id)
+        if record is None:
+            return
+        await self.repository.create_import_error(
+            statement_import_id=import_id,
+            row_number=None,
+            field=None,
+            raw_value=None,
+            error_code="QUEUE_UNAVAILABLE",
+            message="The background import worker could not be reached.",
+        )
+        await self.repository.set_status(record, StatementImportStatus.FAILED)
+        await self.session.commit()
 
     async def process_import(self, import_id: uuid.UUID) -> StatementImport:
         """Parse the stored file and insert normalized transactions.
@@ -96,17 +142,24 @@ class StatementService:
         This is the synchronous core that TASK-014 runs inside a Celery
         task. Safe to call directly (used by tests and fallback paths).
         """
-        import_record = await self.repository.get_import(import_id)
+        import_record = await self.repository.get_import_for_update(import_id)
         if import_record is None:
             raise NotFoundError("Statement import not found.")
+        if import_record.status in (
+            StatementImportStatus.SUCCESS,
+            StatementImportStatus.PARTIAL_SUCCESS,
+        ):
+            return import_record
 
         await self.repository.set_status(import_record, StatementImportStatus.PARSING)
 
-        account = await self.session.get(Account, import_record.account_id)
+        account = await self.session.scalar(
+            select(Account).where(Account.id == import_record.account_id).with_for_update()
+        )
         if account is None:
             raise NotFoundError("Account not found.")
         bank = await self.session.get(Bank, account.bank_id)
-        parser = get_parser(bank.code if bank else "GENERIC")
+        parser = get_parser(bank.statement_parser_type if bank else "GENERIC")
 
         try:
             path = self.storage.path_for(import_record.stored_filename)
@@ -151,11 +204,13 @@ class StatementService:
 
         inserted = 0
         skipped = 0
-        dates: list = []
-        last_balance = None
+        dates: list[date] = []
+        balance_candidates: list[tuple[date, int, Decimal]] = []
         category_cache: dict[str, uuid.UUID | None] = {}
 
-        for txn, fingerprint in zip(transactions, fingerprints, strict=True):
+        for row_index, (txn, fingerprint) in enumerate(
+            zip(transactions, fingerprints, strict=True)
+        ):
             if txn.direction is None:
                 skipped += 1
                 await self.repository.create_import_error(
@@ -205,15 +260,55 @@ class StatementService:
             if txn.transaction_date is not None:
                 dates.append(txn.transaction_date)
             if txn.balance_after is not None:
-                last_balance = txn.balance_after
+                balance_date = txn.posting_date or txn.transaction_date
+                if balance_date is not None:
+                    balance_candidates.append((balance_date, row_index, txn.balance_after))
 
-        # Refresh the account's actual balance from the statement.
-        if statement.balance is not None:
-            account.actual_balance = statement.balance
-            account.balance_as_of = max(dates) if dates else account.balance_as_of
-        elif last_balance is not None:
-            account.actual_balance = last_balance
-            account.balance_as_of = max(dates) if dates else account.balance_as_of
+        # Refresh the account only from a statement that is at least as new as
+        # the currently known balance.  Bank exports are frequently sorted in
+        # descending order, so "the last parsed row" is not necessarily the
+        # newest balance.
+        incoming_date = statement.statement_date or (max(dates) if dates else None)
+        newest_row_balance = (
+            max(balance_candidates, key=lambda item: (item[0], item[1]))[2]
+            if balance_candidates
+            else None
+        )
+        incoming_balance = (
+            statement.balance if statement.balance is not None else newest_row_balance
+        )
+        balance_updated = False
+        if incoming_date is not None and incoming_balance is not None:
+            incoming_as_of = datetime.combine(incoming_date, time.min, tzinfo=UTC)
+            current_as_of = account.balance_as_of
+            if current_as_of is not None and current_as_of.tzinfo is None:
+                current_as_of = current_as_of.replace(tzinfo=UTC)
+            if current_as_of is None or incoming_as_of >= current_as_of:
+                account.actual_balance = incoming_balance
+                account.balance_as_of = incoming_as_of
+                balance_updated = True
+
+        reservation_shortfall = None
+        if balance_updated:
+            # Existing reservations remain intact, but a newly imported lower
+            # balance must be surfaced as an operational exception instead of
+            # silently producing an unexplained negative planning balance.
+            from app.modules.allocation.service import sum_reserved_amount
+
+            reserved = await sum_reserved_amount(self.session, account.id)
+            planning_available = account.actual_balance - reserved - account.minimum_balance
+            if planning_available < 0:
+                reservation_shortfall = abs(planning_available)
+                await AuditService(self.session).record(
+                    user_id=account.user_id,
+                    action="RESERVATION_SHORTFALL_DETECTED",
+                    resource_type="account",
+                    resource_id=str(account.id),
+                    after_data={
+                        "shortfall": str(reservation_shortfall),
+                        "balance_as_of": incoming_as_of.isoformat(),
+                    },
+                )
 
         status = StatementImportStatus.PARTIAL_SUCCESS if skipped else StatementImportStatus.SUCCESS
         await self.repository.update_import_result(
@@ -225,6 +320,27 @@ class StatementService:
             start_date=min(dates) if dates else None,
             end_date=max(dates) if dates else None,
             completed_at=datetime.now(UTC),
+        )
+        # Persist transaction semantics as part of the same import
+        # transaction, so downstream reports never briefly see unclassified
+        # transfers/refunds.
+        await self.session.flush()
+        await RelationService(self.session).apply_for_account(account.id)
+        await TransferService(self.session).apply_for_user(account.user_id)
+        await AuditService(self.session).record(
+            user_id=account.user_id,
+            action="STATEMENT_IMPORT_COMPLETED",
+            resource_type="statement_import",
+            resource_id=str(import_record.id),
+            after_data={
+                "inserted": inserted,
+                "skipped": skipped,
+                "status": status.value,
+                "balance_updated": balance_updated,
+                "reservation_shortfall": (
+                    str(reservation_shortfall) if reservation_shortfall is not None else None
+                ),
+            },
         )
         await self.session.commit()
         logger.info(

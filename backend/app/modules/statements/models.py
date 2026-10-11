@@ -6,7 +6,16 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -68,6 +77,10 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A normalized bank transaction."""
 
     __tablename__ = "transactions"
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_transactions_amount_nonnegative"),
+        UniqueConstraint("account_id", "fingerprint", name="uq_transactions_account_fingerprint"),
+    )
 
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False

@@ -1,8 +1,13 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -15,7 +20,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -26,6 +31,10 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_env: str = "development"
     debug: bool = False
+    # Explicit opt-in: anonymous visitors share a separate demo principal.
+    demo_mode: bool = False
+    # Local SQLite showcase: no Docker, Redis, worker or beat required.
+    local_demo: bool = False
 
     api_v1_prefix: str = "/api/v1"
 
@@ -71,12 +80,53 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
+    # Shared invite/bootstrap token required for registration in production.
+    registration_token: str | None = None
 
     # --- Storage -------------------------------------------------------------
     # Root directory for uploaded statement files, exports and temp data.
     data_dir: str = "./data"
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 20
+
+    # Limit the search window used by automatic reconciliation.  Keeping
+    # this bounded avoids matching a new payment to an unrelated old debit.
+    recon_candidate_window_days: int = 30
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        """Fail closed when production is started with placeholder secrets."""
+        if self.local_demo:
+            if self.app_env.lower() == "production":
+                raise ValueError("LOCAL_DEMO must be disabled in production")
+            url = make_url(self.database_url)
+            if (
+                url.drivername != "sqlite+aiosqlite"
+                or not url.database
+                or url.database == ":memory:"
+            ):
+                raise ValueError("LOCAL_DEMO requires a persistent sqlite+aiosqlite database")
+            # Anchor relative paths to the backend, never the shell's cwd.
+            db_path = Path(url.database)
+            if not db_path.is_absolute():
+                db_path = BACKEND_DIR / db_path
+            self.database_url = url.set(database=db_path.resolve().as_posix()).render_as_string()
+            if not Path(self.data_dir).is_absolute():
+                self.data_dir = str((BACKEND_DIR / self.data_dir).resolve())
+            self.statement_import_async = False
+        if self.app_env.lower() != "production":
+            return self
+        if len(self.secret_key) < 32 or self.secret_key.startswith(
+            ("development-only", "replace-with")
+        ):
+            raise ValueError("SECRET_KEY must be a non-default value of at least 32 characters")
+        if (
+            not self.registration_token
+            or self.registration_token.startswith("replace-with")
+            or len(self.registration_token) < 16
+        ):
+            raise ValueError("REGISTRATION_TOKEN must be at least 16 characters in production")
+        return self
 
     @property
     def uploads_path(self) -> str:

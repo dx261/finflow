@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 from app.modules.payments.models import PaymentStatus
 from app.modules.reconciliation.schemas import ReconRead, SelectTransaction
 from app.modules.reconciliation.service import ReconciliationService
@@ -29,9 +29,9 @@ async def reconcile_payment(
 
 @payments_router.get("/{payment_id}/reconciliations", response_model=list[ReconRead])
 async def list_payment_reconciliations(
-    payment_id: uuid.UUID, current_user: CurrentUser, session: DbSession
+    payment_id: uuid.UUID, data_owner_id: DataOwnerId, session: DbSession
 ) -> list[ReconRead]:
-    items = await ReconciliationService(session).list_for_payment(current_user.id, payment_id)
+    items = await ReconciliationService(session).list_for_payment(data_owner_id, payment_id)
     return [ReconRead.model_validate(item) for item in items]
 
 
@@ -47,9 +47,11 @@ async def release_payment(
 
 
 @router.get("/reconciliations/pending", response_model=list[ReconRead])
-async def pending_reconciliations(current_user: CurrentUser, session: DbSession) -> list[ReconRead]:
-    """Review workbench: matches awaiting human decision."""
-    items = await ReconciliationService(session).list_pending(current_user.id)
+async def pending_reconciliations(
+    data_owner_id: DataOwnerId, session: DbSession
+) -> list[ReconRead]:
+    """Review workbench: high-confidence and review-required open matches."""
+    items = await ReconciliationService(session).list_pending(data_owner_id)
     return [ReconRead.model_validate(item) for item in items]
 
 

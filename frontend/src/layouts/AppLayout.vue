@@ -12,6 +12,7 @@ const navItems = [
   { path: '/accounts', icon: 'Wallet', label: '账户' },
   { path: '/transactions', icon: 'List', label: '交易' },
   { path: '/statements', icon: 'UploadFilled', label: '账单导入' },
+  { path: '/planning', icon: 'Clock', label: '计划管理' },
   { path: '/payments', icon: 'Calendar', label: '付款' },
   { path: '/allocations', icon: 'PieChart', label: '分配' },
   { path: '/reconciliation', icon: 'Checked', label: '对账' },
@@ -47,15 +48,24 @@ function logout(): void {
       <el-header class="app-header">
         <div class="header-title">{{ route.meta.title }}</div>
         <div class="header-right">
-          <el-tag size="small" :type="auth.user?.role === 'OWNER' ? 'warning' : 'info'">
+          <el-tag v-if="auth.demoMode" size="small" type="warning">免登录演示模式</el-tag>
+          <el-tag v-else size="small" :type="auth.user?.role === 'OWNER' ? 'warning' : 'info'">
             {{ auth.user?.role }}
           </el-tag>
           <span class="username">{{ auth.displayName }}</span>
-          <el-button size="small" @click="logout">退出</el-button>
+          <el-button v-if="!auth.demoMode" size="small" @click="logout">退出</el-button>
         </div>
       </el-header>
 
       <el-main class="app-main">
+        <el-alert
+          v-if="auth.demoMode"
+          title="演示环境：所有访客共享演示数据，可进行增删改操作。请勿上传真实银行账单。"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 16px"
+        />
         <router-view />
       </el-main>
     </el-container>

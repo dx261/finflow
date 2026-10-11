@@ -47,6 +47,11 @@ class StatementRepository:
     async def get_import(self, import_id: uuid.UUID) -> StatementImport | None:
         return await self.session.get(StatementImport, import_id)
 
+    async def get_import_for_update(self, import_id: uuid.UUID) -> StatementImport | None:
+        return await self.session.scalar(
+            select(StatementImport).where(StatementImport.id == import_id).with_for_update()
+        )
+
     async def list_imports(self, account_id: uuid.UUID) -> list[StatementImport]:
         result = await self.session.scalars(
             select(StatementImport)

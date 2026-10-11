@@ -13,8 +13,8 @@ class PaymentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str | None = None
     payee_name: str | None = Field(default=None, max_length=255)
-    amount: Decimal = Field(gt=0)
-    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    currency: str = Field(default="CNY", pattern=r"^[A-Z]{3}$")
     planned_date: date
     priority: PaymentPriority = PaymentPriority.NORMAL
     preferred_account_id: uuid.UUID | None = None
@@ -24,8 +24,8 @@ class PaymentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = None
     payee_name: str | None = Field(default=None, max_length=255)
-    amount: Decimal | None = Field(default=None, gt=0)
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     planned_date: date | None = None
     priority: PaymentPriority | None = None
     preferred_account_id: uuid.UUID | None = None

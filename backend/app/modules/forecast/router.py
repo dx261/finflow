@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.deps import CurrentUser, OwnerUser
+from app.modules.auth.deps import DataOwnerId, OwnerUser
 from app.modules.forecast.schemas import (
     CashFlowPlanCreate,
     CashFlowPlanRead,
@@ -23,17 +23,17 @@ router = APIRouter(tags=["forecast"])
 
 @router.get("/forecast", response_model=ForecastResponse)
 async def get_forecast(
-    current_user: CurrentUser,
+    data_owner_id: DataOwnerId,
     session: DbSession,
     days: int = Query(default=30, ge=1, le=90),
 ) -> ForecastResponse:
     """Project balances 7/30/90 days out, with low-balance warnings."""
-    return await ForecastService(session).forecast(current_user.id, days)
+    return await ForecastService(session).forecast(data_owner_id, days)
 
 
 @router.get("/cashflow-plans", response_model=list[CashFlowPlanRead])
-async def list_plans(current_user: CurrentUser, session: DbSession) -> list[CashFlowPlanRead]:
-    plans = await ForecastService(session).list_plans(current_user.id)
+async def list_plans(data_owner_id: DataOwnerId, session: DbSession) -> list[CashFlowPlanRead]:
+    plans = await ForecastService(session).list_plans(data_owner_id)
     return [CashFlowPlanRead.model_validate(p) for p in plans]
 
 
